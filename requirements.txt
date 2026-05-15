@@ -1,0 +1,45 @@
+# Web framework
+fastapi==0.136.0
+uvicorn==0.45.0
+python-multipart==0.0.26
+starlette==1.0.0
+
+# Config
+python-dotenv==1.2.2
+
+# Database (MySQL async)
+SQLAlchemy==2.0.49
+aiomysql==0.3.2
+PyMySQL==1.1.2
+greenlet==3.4.0
+
+# File extraction
+pdfplumber==0.11.9
+pdfminer.six==20251230
+pypdfium2==5.7.1
+python-docx==1.2.0
+lxml==6.1.0
+pillow==12.2.0
+
+# LLM providers
+groq==0.37.1
+google-genai==1.10.0
+openai==1.54.3
+
+# Conversational chat layer
+langchain-core==1.4.0
+langchain-groq==1.1.2
+langgraph==1.2.0
+
+# Vector search
+qdrant-client==1.12.1
+
+# Embeddings & reranker
+sentence-transformers==3.3.1
+
+# HTTP / async
+httpx==0.28.1
+anyio==4.13.0
+
+# Validation
+pydantic==2.13.3

@@ -1,0 +1,14 @@
+# Chuẩn hoá EOL về LF (Unix) cho tất cả text file
+# Tránh diff "all lines changed" khi switch giữa Windows và Linux
+* text=auto eol=lf
+
+# Binary
+*.png binary
+*.jpg binary
+*.pdf binary
+*.docx binary
+
+# Script Windows giữ CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
