@@ -1,4 +1,4 @@
-# Điều phối 3 service: extraction - parsing - storage.
+# Điều phối các service: extraction - parsing - storage - retrieval - chatbot
 
 from dotenv import load_dotenv
 load_dotenv()
