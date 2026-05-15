@@ -27,7 +27,6 @@ Thumbs.db
 
 # Eval framework & test artifacts (local-only)
 tests/
-.claude/
 .pytest_cache/
 
 # Scripts dev/utility (local-only)
