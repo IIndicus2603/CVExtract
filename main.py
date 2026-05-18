@@ -48,14 +48,15 @@ logger = logging.getLogger(__name__)
 CV_CONFIDENCE_THRESHOLD = 0.5
 NOT_A_CV_MESSAGE = "Document does not appear to be a CV"
 
-# Globals
+_extractor = CVExtractorService()
+_parser = ParsingService(provider=PARSING_LLM_PROVIDER, model=PARSING_LLM_MODEL)
+_storage = StorageService()
+# lifespan
 _retrieval: RetrievalService | None = None
 _vector_store: VectorStore | None = None
 _session_store: SessionStore | None = None
 _chat_service: ChatService | None = None
-_extractor = CVExtractorService()
-_parser = ParsingService(provider=PARSING_LLM_PROVIDER, model=PARSING_LLM_MODEL)
-_storage = StorageService()
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
