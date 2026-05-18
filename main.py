@@ -44,6 +44,10 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+# Confidence tối thiểu để công nhận document là CV
+CV_CONFIDENCE_THRESHOLD = 0.5
+NOT_A_CV_MESSAGE = "Document does not appear to be a CV"
+
 # Globals
 _retrieval: RetrievalService | None = None
 _vector_store: VectorStore | None = None
@@ -104,10 +108,6 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="CV Extraction API", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
-# Confidence tối thiểu để công nhận document là CV
-CV_CONFIDENCE_THRESHOLD = 0.5
-NOT_A_CV_MESSAGE = "Document does not appear to be a CV"
 
 
 # Kiểm tra có phải CV không
