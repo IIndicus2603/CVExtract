@@ -23,8 +23,6 @@ RUN mkdir -p logs
 
 EXPOSE 8000
 
-# Healthcheck: ping /docs (Swagger UI luôn có khi FastAPI ready)
-# start_period dài để chờ load embedder + reranker lần đầu (~30-50s)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -fsS http://localhost:8000/docs > /dev/null || exit 1
 
