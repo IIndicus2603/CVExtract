@@ -44,13 +44,14 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-# Globals khởi tạo trong lifespan, dùng chung cho mọi request
-# ChatService cũng init ở lifespan (không module level) vì cần _retrieval ready
+# Globals
 _retrieval: RetrievalService | None = None
 _vector_store: VectorStore | None = None
 _session_store: SessionStore | None = None
 _chat_service: ChatService | None = None
-
+_extractor = CVExtractorService()
+_parser = ParsingService(provider=PARSING_LLM_PROVIDER, model=PARSING_LLM_MODEL)
+_storage = StorageService()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -70,7 +71,7 @@ async def lifespan(_: FastAPI):
     # Embedder: load eager lúc startup
     embedder = Embedder(model_name=EMBEDDING_MODEL, expected_dim=EMBEDDING_DIM)
 
-    # Reranker: optional. Set RERANKER_MODEL="" trong .env để tắt
+    # Reranker
     reranker = Reranker(model_name=RERANKER_MODEL) if RERANKER_MODEL else None
 
     _retrieval = RetrievalService(
@@ -79,7 +80,7 @@ async def lifespan(_: FastAPI):
         reranker=reranker,
     )
 
-    # Chat layer DB-backed; main inject hàm search vào, chat không phụ thuộc retrieval
+    # Chat layer DB-backed
     _session_store = SessionStore(history_last_n=CHAT_HISTORY_LAST_N)
     _chat_service = ChatService(search_fn=_retrieval.search_within_cv, store=_session_store)
 
@@ -103,13 +104,6 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="CV Extraction API", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
-
-# Khởi tạo 1 lần, dùng chung cho mọi request
-# Provider + model parsing đọc từ .env (PARSING_LLM_PROVIDER / PARSING_LLM_MODEL)
-_extractor = CVExtractorService()
-_parser = ParsingService(provider=PARSING_LLM_PROVIDER, model=PARSING_LLM_MODEL)
-_storage = StorageService()
 
 # Confidence tối thiểu để công nhận document là CV
 CV_CONFIDENCE_THRESHOLD = 0.5
@@ -167,8 +161,7 @@ async def upload_cv(file: UploadFile = File(...), db: AsyncSession = Depends(get
         text=text,
     ))
 
-    # Index vào Qdrant. Lỗi ở đây KHÔNG fail request.
-    # MySQL là source of truth, Qdrant là derived index có thể rebuild.
+    # Index vào Qdrant. Lỗi ở đây KHÔNG fail request
     try:
         await _retrieval.index_cv(cv_key=stem.lower(), parsed=parsed)
     except Exception as e:
@@ -197,7 +190,7 @@ async def upload_multiple_cvs(folder_path: str = Form(...), db: AsyncSession = D
     if not results:
         raise HTTPException(status_code=400, detail="No supported files found in the specified folder")
 
-    # Tách kết quả thành 2 nhóm: thành công và lỗi
+    # Tách kết quả thành 2 nhóm: success và error
     success = [r for r in results if r.status == CVStatus.SUCCESS]
     errors = [r for r in results if r.status == CVStatus.ERROR]
 
