@@ -8,5 +8,3 @@ EXTRACTOR_MAP: dict[str, BaseExtractor] = {
     ".pdf": PdfExtractor(),
     ".docx": DocxExtractor(),
 }
-
-SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(EXTRACTOR_MAP)

@@ -1,7 +1,4 @@
-# Điều phối các service: extraction - parsing - storage - retrieval - chatbot
-
-from dotenv import load_dotenv
-load_dotenv()
+# Điều phối các service, extraction - parsing - storage - retrieval - matching - chatbot
 
 import asyncio
 import json
@@ -21,20 +18,24 @@ from core.config import (
     QDRANT_COLLECTION, QDRANT_URL,
     RERANKER_MODEL,
 )
-from core.database import engine, get_db, init_db
+
+from core.database import AsyncSessionLocal, engine, get_db, init_db
 from core.logger import setup_logging
+from core.embeddings.embedder import Embedder
+from core.embeddings.reranker import Reranker
+from core.registries import NameRegistry, SkillRegistry
+from core.vector_store import VectorStore
 from features.chat.memory.store import SessionStore, cleanup_expired_sessions_loop
 from features.chat.schemas import (
     ChatRequest, ChatResponse, ChatSession,
     CreateSessionRequest, CreateSessionResponse,
 )
 from features.chat.service import ChatService
-from features.extraction.schemas import CVStatus
+from features.extraction.schemas import CVResult, CVStatus
 from features.extraction.service import CVExtractorService
-from features.parsing.service import ParsingService
-from features.retrieval.models.embedder import Embedder
-from features.retrieval.models.reranker import Reranker
-from features.retrieval.pipeline.vector_store import VectorStore
+from features.matching.schemas import JDMatchRequest, MatchResponse
+from features.matching.service import MatchingService
+from features.parsing.service import NOT_A_CV_MESSAGE, ParsingService
 from features.retrieval.schemas import SemanticSearchRequest
 from features.retrieval.service import RetrievalService
 from features.storage.schemas import CVSaveData
@@ -44,28 +45,31 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-# Confidence tối thiểu để công nhận document là CV
-CV_CONFIDENCE_THRESHOLD = 0.5
-NOT_A_CV_MESSAGE = "Document does not appear to be a CV"
-
+# Singletons (lifespan-bound)
 _extractor = CVExtractorService()
 _parser = ParsingService(provider=PARSING_LLM_PROVIDER, model=PARSING_LLM_MODEL)
 _storage = StorageService()
-# lifespan
+_name_registry = NameRegistry()
+_skill_registry = SkillRegistry()
 _retrieval: RetrievalService | None = None
 _vector_store: VectorStore | None = None
 _session_store: SessionStore | None = None
 _chat_service: ChatService | None = None
+_matching: MatchingService | None = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global _retrieval, _vector_store, _session_store, _chat_service
+    """Khởi tạo DB + Qdrant + embedder/reranker + chat services, cleanup khi shutdown"""
+    global _retrieval, _vector_store, _session_store, _chat_service, _matching
 
-    # MySQL
     await init_db()
 
-    # Qdrant: tạo collection nếu chưa có
+    # Nạp registries từ DB (dùng cho query filter)
+    async with AsyncSessionLocal() as db:
+        await _name_registry.load_from_db(db)
+        await _skill_registry.load_from_db(db)
+
     _vector_store = VectorStore(
         url=QDRANT_URL,
         collection=QDRANT_COLLECTION,
@@ -73,19 +77,27 @@ async def lifespan(_: FastAPI):
     )
     await _vector_store.ensure_collection()
 
-    # Embedder: load eager lúc startup
     embedder = Embedder(model_name=EMBEDDING_MODEL, expected_dim=EMBEDDING_DIM)
-
-    # Reranker
     reranker = Reranker(model_name=RERANKER_MODEL) if RERANKER_MODEL else None
 
     _retrieval = RetrievalService(
         embedder=embedder,
         vector_store=_vector_store,
         reranker=reranker,
+        name_registry=_name_registry,
+        skill_registry=_skill_registry,
     )
 
-    # Chat layer DB-backed
+    _matching = MatchingService(
+        provider=PARSING_LLM_PROVIDER,
+        model=PARSING_LLM_MODEL,
+        embedder=embedder,
+        vector_store=_vector_store,
+        skill_registry=_skill_registry,
+        get_cv_meta_fn=_storage.get_by_key,
+        reranker=reranker,
+    )
+
     _session_store = SessionStore(history_last_n=CHAT_HISTORY_LAST_N)
     _chat_service = ChatService(search_fn=_retrieval.search_within_cv, store=_session_store)
 
@@ -96,7 +108,6 @@ async def lifespan(_: FastAPI):
 
     yield
 
-    # Cleanup
     cleanup_task.cancel()
     try:
         await cleanup_task
@@ -110,50 +121,70 @@ app = FastAPI(title="CV Extraction API", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+# Cho list[UploadFile], Swagger UI cần "format, binary" để render file picker
+def _patch_binary_uploads(schema: dict) -> None:
+    """Walk schema, convert contentMediaType=octet-stream thành format=binary"""
+    if isinstance(schema, dict):
+        if (
+            schema.get("type") == "string"
+            and schema.pop("contentMediaType", None) == "application/octet-stream"
+        ):
+            schema["format"] = "binary"
+        for v in schema.values():
+            _patch_binary_uploads(v)
+    elif isinstance(schema, list):
+        for v in schema:
+            _patch_binary_uploads(v)
 
-# Kiểm tra có phải CV không
-def _classify_cv(parsed: dict) -> tuple[bool, dict]:
-    if not parsed:
-        # Fallback raw text, coi là success
-        return True, parsed
-    is_cv = bool(parsed.pop("is_cv", False))
-    confidence = float(parsed.pop("confidence", 0) or 0)
-    return is_cv and confidence >= CV_CONFIDENCE_THRESHOLD, parsed
+
+_original_openapi = app.openapi
+
+
+def _patched_openapi():
+    """Wrap FastAPI.openapi() để apply binary-upload patch"""
+    schema = _original_openapi()
+    _patch_binary_uploads(schema)
+    return schema
+
+
+app.openapi = _patched_openapi
 
 
 # Frontend
 @app.get("/")
 def index():
+    """Trang chính (SPA)"""
     return FileResponse("static/index.html")
 
 
-# Upload 1 CV
+# Upload
 @app.post("/UploadCV")
 async def upload_cv(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    """Upload 1 file CV, extract rồi parse LLM rồi classify rồi lưu MySQL rồi index Qdrant"""
     logger.info("UploadCV | file=%s", file.filename)
     stem, ext = os.path.splitext(file.filename)
     ext = ext.lower()
 
-    # Chỉ chấp nhận .pdf và .docx
     if not _extractor.supports(ext):
         raise HTTPException(
             status_code=415,
             detail=f"Unsupported file type: '{ext}'. Supported: .pdf, .docx",
         )
 
-    # Extract text từ file
     result = await _extractor.extract_file(file, ext)
     if result.status == CVStatus.ERROR:
         raise HTTPException(status_code=422, detail=result.error_message)
 
-    # Nhờ LLM parse text thành JSON. Nếu fail thì giữ nguyên text gốc
-    parsed = await _parser.parse(result.text)
-    is_cv, parsed = _classify_cv(parsed)
+    parsed, usage = await _parser.parse(result.text)
+    logger.info(
+        "Parse '%s' tokens: prompt=%d completion=%d total=%d",
+        result.file_name, usage.prompt, usage.completion, usage.total,
+    )
+    is_cv, parsed = _parser.classify(parsed)
     if not is_cv:
         raise HTTPException(status_code=422, detail=NOT_A_CV_MESSAGE)
     text = json.dumps(parsed, ensure_ascii=False, indent=2) if parsed else result.text
 
-    # Lưu xuống MySQL (key = tên file không có .ext)
     await _storage.save(db, CVSaveData(
         key=stem.lower(),
         file_name=result.file_name,
@@ -162,7 +193,7 @@ async def upload_cv(file: UploadFile = File(...), db: AsyncSession = Depends(get
         text=text,
     ))
 
-    # Index vào Qdrant. Lỗi ở đây KHÔNG fail request
+    # Index Qdrant, lỗi KHÔNG fail request
     try:
         await _retrieval.index_cv(cv_key=stem.lower(), parsed=parsed)
     except Exception as e:
@@ -179,29 +210,47 @@ async def upload_cv(file: UploadFile = File(...), db: AsyncSession = Depends(get
     }
 
 
-# Upload nhiều CV từ 1 folder
+# Browser webkitdirectory upload, nhiều file qua multipart, backend lọc .pdf/.docx
 @app.post("/UploadMultipleCVs")
-async def upload_multiple_cvs(folder_path: str = Form(...), db: AsyncSession = Depends(get_db)):
-    logger.info("UploadMultipleCVs | folder=%s", folder_path)
-    if not os.path.isdir(folder_path):
-        raise HTTPException(status_code=400, detail=f"Folder not found: '{folder_path}'")
+async def upload_multiple_cvs(files: list[UploadFile] = File(...), db: AsyncSession = Depends(get_db)):
+    """Upload batch nhiều file CV, file unsupported báo lỗi cùng response"""
+    logger.info("UploadMultipleCVs | files=%d", len(files))
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
 
-    # Extract toàn bộ file trong folder
-    results = await _extractor.extract_folder(folder_path)
-    if not results:
-        raise HTTPException(status_code=400, detail="No supported files found in the specified folder")
+    extract_tasks: list[tuple] = []
+    errors: list[CVResult] = []
+    for f in files:
+        ext = os.path.splitext(f.filename)[1].lower()
+        if not _extractor.supports(ext):
+            errors.append(CVResult(
+                file_name=f.filename, extension=ext,
+                status=CVStatus.ERROR,
+                error_message=f"Unsupported file type: '{ext}'",
+            ))
+        else:
+            extract_tasks.append((f, ext))
 
-    # Tách kết quả thành 2 nhóm: success và error
-    success = [r for r in results if r.status == CVStatus.SUCCESS]
-    errors = [r for r in results if r.status == CVStatus.ERROR]
+    if not extract_tasks:
+        raise HTTPException(status_code=400, detail="No supported files in selection (.pdf, .docx only)")
 
-    # Parse song song các file thành công
-    parsed_list = await _parser.parse_many([r.text for r in success])
+    extracted = list(await asyncio.gather(*[
+        _extractor.extract_file(f, ext) for f, ext in extract_tasks
+    ]))
 
-    # Loại các file không phải CV ra khỏi nhóm success, chuyển sang errors
+    success = [r for r in extracted if r.status == CVStatus.SUCCESS]
+    errors.extend(r for r in extracted if r.status == CVStatus.ERROR)
+
+    parsed_list, batch_usage = await _parser.parse_many([r.text for r in success])
+    logger.info(
+        "ParseBatch files=%d tokens: prompt=%d completion=%d total=%d (across %d success)",
+        len(files), batch_usage.prompt, batch_usage.completion, batch_usage.total, len(success),
+    )
+
+    # File parse OK nhưng không phải CV thì chuyển sang errors
     saved: list[tuple] = []
     for r, parsed in zip(success, parsed_list):
-        is_cv, parsed = _classify_cv(parsed)
+        is_cv, parsed = _parser.classify(parsed)
         if not is_cv:
             r.status = CVStatus.ERROR
             r.error_message = NOT_A_CV_MESSAGE
@@ -209,7 +258,6 @@ async def upload_multiple_cvs(folder_path: str = Form(...), db: AsyncSession = D
         else:
             saved.append((r, parsed))
 
-    # Lưu DB và build response
     batch_items: list[dict] = []
     for r, parsed in saved:
         text = json.dumps(parsed, ensure_ascii=False, indent=2) if parsed else r.text
@@ -222,8 +270,7 @@ async def upload_multiple_cvs(folder_path: str = Form(...), db: AsyncSession = D
         ))
         batch_items.append({"file_name": r.file_name, "status": r.status})
 
-    # Index tất cả CV thành công vào Qdrant song song
-    # Lỗi từng CV không fail cả batch
+    # Index Qdrant song song, lỗi 1 CV không fail cả batch
     async def _index_safe(key, parsed):
         try:
             await _retrieval.index_cv(cv_key=key, parsed=parsed)
@@ -235,7 +282,6 @@ async def upload_multiple_cvs(folder_path: str = Form(...), db: AsyncSession = D
         for r, parsed in saved
     ])
 
-    # Thêm các file lỗi vào response (không lưu DB)
     for r in errors:
         batch_items.append({
             "file_name": r.file_name,
@@ -245,37 +291,90 @@ async def upload_multiple_cvs(folder_path: str = Form(...), db: AsyncSession = D
 
     return {
         "message": "CV upload process completed",
-        "total": len(results),
+        "total": len(files),
         "succeeded": len(saved),
         "failed": len(errors),
         "errors": [{"file": r.file_name, "reason": r.error_message} for r in errors],
         "results": batch_items,
+        "tokens": {
+            "prompt": batch_usage.prompt,
+            "completion": batch_usage.completion,
+            "total": batch_usage.total,
+        },
     }
 
 
-# Trả về toàn bộ CV đã lưu
+# Storage CRUD
 @app.get("/Storage")
 async def get_storage(db: AsyncSession = Depends(get_db)):
+    """Trả toàn bộ CV trong DB dạng dict {key, cv_dict}"""
     return {"cv_storage": await _storage.get_all(db)}
 
 
+@app.get("/Storage/{cv_key}")
+async def get_cv_detail(cv_key: str, db: AsyncSession = Depends(get_db)):
+    """Chi tiết 1 CV theo key, 404 nếu không có"""
+    cv = await _storage.get_by_key(db, cv_key.lower())
+    if cv is None:
+        raise HTTPException(status_code=404, detail=f"CV '{cv_key}' not found")
+    return cv
+
+
+@app.patch("/Storage/{cv_key}")
+async def update_cv(cv_key: str, payload: dict, db: AsyncSession = Depends(get_db)):
+    """Update parsed fields của 1 CV + re-index Qdrant"""
+    key = cv_key.lower()
+    parsed = payload.get("parsed")
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail="Missing 'parsed' object in body")
+
+    ok = await _storage.update(db, key, parsed)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"CV '{cv_key}' not found")
+
+    # Re-index Qdrant, lỗi KHÔNG fail request
+    try:
+        await _retrieval.index_cv(cv_key=key, parsed=parsed)
+    except Exception as e:
+        logger.error("Failed to re-index '%s' after update: %s", key, e)
+
+    return {"message": "CV updated", "cv_key": key}
+
+
+@app.delete("/Storage/{cv_key}")
+async def delete_cv(cv_key: str, db: AsyncSession = Depends(get_db)):
+    """Xoá CV khỏi MySQL + Qdrant + NameRegistry"""
+    key = cv_key.lower()
+    ok = await _storage.delete(db, key)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"CV '{cv_key}' not found")
+
+    try:
+        await _retrieval.remove_cv(key)
+    except Exception as e:
+        logger.error("Failed to remove '%s' from retrieval: %s", key, e)
+
+    return {"message": "CV deleted", "cv_key": key}
+
+
+# Semantic search
 @app.post("/Search/Semantic")
 async def search_semantic(req: SemanticSearchRequest, db: AsyncSession = Depends(get_db)):
+    """Vector search rồi group theo CV, sort theo score"""
     hits = await _retrieval.search(query=req.query, top_k=req.top_k)
 
-    # Group hits theo cv_key + fetch full CV từ MySQL
+    # Group hits theo cv_key, fetch full CV, skip CV bị xoá khỏi MySQL
     seen: dict[str, dict] = {}
     for hit in hits:
         if hit.cv_key not in seen:
             cv = await _storage.get_by_key(db, hit.cv_key)
             if cv is None:
-                # Edge case: CV bị xóa khỏi MySQL nhưng còn trong Qdrant
                 continue
             seen[hit.cv_key] = {
                 "cv_key": hit.cv_key,
                 "cv": cv,
                 "matched_chunks": [],
-                "best_score": hit.score,
+                "score": hit.score,
             }
         seen[hit.cv_key]["matched_chunks"].append({
             "section": hit.section,
@@ -283,23 +382,62 @@ async def search_semantic(req: SemanticSearchRequest, db: AsyncSession = Depends
             "score": hit.score,
         })
 
-    # Sort theo best_score giảm dần
-    results = sorted(seen.values(), key=lambda x: -x["best_score"])
-
+    results = sorted(seen.values(), key=lambda x: -x["score"])
     return {
         "query": req.query,
-        "total_hits": len(hits),
+        "total_cvs": len(results),
         "results": results,
     }
 
 
-# Conversational chat
-# Tạo session, verify cv_key exists trong DB
+# JD matching
+@app.post("/Match/JD", response_model=MatchResponse)
+async def match_jd(req: JDMatchRequest, db: AsyncSession = Depends(get_db)):
+    """Match JD text ra top-K CV phù hợp kèm score aggregated"""
+    logger.info("MatchJD | jd_len=%d top_k=%d", len(req.jd_text), req.top_k)
+    return await _matching.match(
+        db, req.jd_text, req.top_k,
+        strict_skills_filter=req.strict_skills_filter,
+        strict_years_filter=req.strict_years_filter,
+    )
+
+
+@app.post("/Match/JD/Upload", response_model=MatchResponse)
+async def match_jd_upload(
+    file: UploadFile = File(...),
+    top_k: int = Form(5),
+    strict_skills_filter: bool = Form(False),
+    strict_years_filter: bool = Form(True),
+    db: AsyncSession = Depends(get_db),
+):
+    """Match JD upload PDF/DOCX ra top-K CV phù hợp"""
+    logger.info("MatchJD/Upload | file=%s top_k=%d", file.filename, top_k)
+    _, ext = os.path.splitext(file.filename)
+    ext = ext.lower()
+    if not _extractor.supports(ext):
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type: '{ext}'. Supported: .pdf, .docx",
+        )
+
+    result = await _extractor.extract_file(file, ext)
+    if result.status == CVStatus.ERROR:
+        raise HTTPException(status_code=422, detail=result.error_message)
+
+    return await _matching.match(
+        db, result.text, top_k,
+        strict_skills_filter=strict_skills_filter,
+        strict_years_filter=strict_years_filter,
+    )
+
+
+# Chatbot
 @app.post("/Chat/Sessions", response_model=CreateSessionResponse)
 async def create_chat_session(
     request: CreateSessionRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    """Tạo phiên chat mới gắn với 1 CV, 404 nếu cv_key không tồn tại"""
     cv_key = request.cv_key.lower()
     cv = await _storage.get_by_key(db, cv_key)
     if cv is None:
@@ -308,26 +446,26 @@ async def create_chat_session(
     return CreateSessionResponse(session_id=session.session_id, cv_key=session.cv_key)
 
 
-# Gửi 1 message, response non-streaming
 @app.post("/Chat/Sessions/{session_id}/Messages", response_model=ChatResponse)
 async def send_chat_message(
     session_id: str,
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    """Gửi 1 message, response non-streaming kèm sources"""
     try:
         return await _chat_service.chat(db, session_id, request.message)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-# Streaming response plain text
 @app.post("/Chat/Sessions/{session_id}/Messages/Stream")
 async def send_chat_message_stream(
     session_id: str,
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    """Streaming text response + __SOURCES__ sentinel + JSON sources cuối"""
     if await _chat_service.get_session(db, session_id) is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     return StreamingResponse(
@@ -336,18 +474,18 @@ async def send_chat_message_stream(
     )
 
 
-# Lịch sử đầy đủ + metadata session
 @app.get("/Chat/Sessions/{session_id}", response_model=ChatSession)
 async def get_chat_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    """Lịch sử đầy đủ + metadata phiên chat"""
     session = await _chat_service.get_session_full(db, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     return session
 
 
-# Xoá session chat
 @app.delete("/Chat/Sessions/{session_id}")
 async def delete_chat_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    """Xoá phiên chat + CASCADE xoá messages"""
     if not await _chat_service.delete_session(db, session_id):
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     return {"message": "Session deleted"}

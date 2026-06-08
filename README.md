@@ -1,23 +1,31 @@
 # CVExtract
 
-Hệ thống trích xuất thông tin từ CV (PDF, DOCX). Người dùng upload file, hệ thống đọc nội dung, gọi LLM để bóc tách các trường (họ tên, email, kỹ năng, kinh nghiệm, dự án, giải thưởng, chứng chỉ...) thành JSON có cấu trúc, lưu xuống MySQL + index vào Qdrant để tìm kiếm ngữ nghĩa và chat hỏi đáp với từng CV.
+Hệ thống trích xuất thông tin từ CV (PDF, DOCX). Người dùng upload file, hệ thống đọc nội dung, gọi LLM để bóc tách các trường (họ tên, email, kỹ năng, kinh nghiệm, dự án, giải thưởng, chứng chỉ...) thành JSON có cấu trúc, lưu xuống MySQL + index vào Qdrant để **tìm kiếm ngữ nghĩa**, **match JD <-> CV**, và **chat hỏi đáp với từng CV**.
 
 ---
 
-## Chạy bằng Docker
+## Run with Docker
 
 ```bash
-# 1. Tạo file .env từ template, điền API key (Groq / Gemini / NVIDIA)
+# 1. Tạo file .env từ template (default đã trỏ sẵn provider = 9router)
 cp .env.example .env
 
-# 2. Build + chạy 3 service (app + MySQL + Qdrant)
-docker compose up -d --build
+# 2. Build + chạy 4 service (app + MySQL + Qdrant + 9Router)
+docker compose --profile router9 up -d --build
 
 # 3. Xem log app
 docker compose logs -f app
 ```
 
-Truy cập:
+### LLM setup (required)
+
+App cần **ít nhất 1 LLM provider** để bóc tách CV và trả lời chat. Mặc định app đi qua **9Router** - proxy OpenAI-compatible chạy local, nơi bạn **tự do chọn provider và model nào cũng được** (Groq / NVIDIA / OpenAI...). `config.py` đã đặt sẵn `PARSING_LLM_PROVIDER=9router` / `CHAT_LLM_PROVIDER=9router` + `*_LLM_MODEL=llm`, nên chỉ cần setup model trong dashboard:
+
+1. Bước 2 ở trên đã build + chạy service `router9` (nhờ `--profile router9`).
+2. Mở dashboard `http://localhost:20128`, thêm provider + API key (provider nào tuỳ bạn) và tạo combo (tên tuỳ ý), chọn model muốn dùng trong combo đó.
+3. Nếu đặt tên combo khác `llm`, sửa `PARSING_LLM_MODEL` / `CHAT_LLM_MODEL` trong [`core/config.py`](core/config.py) cho khớp (đây là hằng số trong code, không đọc từ `.env`), rồi `docker compose up -d --build` để app nạp lại.
+
+> Truy cập:
 
 - Frontend: `http://localhost:8000`
 - Swagger UI: `http://localhost:8000/docs`
@@ -37,79 +45,114 @@ docker compose down -v
 
 ---
 
-## Cấu hình
+## Configuration
 
-Tất cả biến môi trường nằm trong `.env` (copy từ `.env.example`). Chia thành 6 nhóm:
+Cấu hình chia làm **2 nhóm**, khác nhau ở chỗ sửa và thời điểm có hiệu lực:
 
-### LLM API keys
+1. **Biến môi trường (`.env`)** - đọc lúc chạy qua `os.getenv` trong [`core/config.py`](core/config.py). Override được mà **không cần sửa code**, chỉ cần đổi `.env` rồi restart. Đây là những thứ thay đổi theo môi trường (secret, host, đường dẫn).
+2. **Hằng số tinh chỉnh (`config.py`)** - gán cứng trong code, **không** đọc từ `.env`. Muốn đổi phải sửa trực tiếp `core/config.py` rồi restart. Đây là các tham số thuật toán (model, ngưỡng, trọng số).
 
-Điền key của provider sẽ dùng. Chỉ cần ít nhất 1 key (Groq mặc định).
+### 1. Environment variables
 
-| Biến              | Mô tả                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------ |
-| `GROQ_API_KEY`   | API key Groq, lấy ở [console.groq.com](https://console.groq.com). Dùng cho cả parsing và chat |
-| `GEMINI_API_KEY` | API key Google Gemini, lấy ở[aistudio.google.com](https://aistudio.google.com)                    |
-| `NVIDIA_API_KEY` | API key NVIDIA NIM, lấy ở[build.nvidia.com](https://build.nvidia.com)                             |
+`config.py` đọc các biến dưới đây qua `os.getenv`, nhưng chia làm 2 mức:
 
-### MySQL (chỉ dùng khi chạy Docker Compose)
+**1a. Variables in `.env.example`** - copy ra `.env` rồi điền. Đây là 5 biến duy nhất bạn cần khai báo. Cột _Default_ là giá trị dùng khi để trống.
 
-Docker Compose dùng 2 biến này để khởi tạo container MySQL. Khi chạy local thì chỉ cần `DATABASE_URL`.
+| Biến                   | Default     | Ý nghĩa                                                          |
+| ---------------------- | ----------- | ---------------------------------------------------------------- |
+| `GROQ_API_KEY`         | _(rỗng)_    | API key Groq, chỉ cần khi provider = `groq`                      |
+| `NVIDIA_API_KEY`       | _(rỗng)_    | API key NVIDIA, chỉ cần khi provider = `nvidia`                  |
+| `ROUTER9_API_KEY`      | _(rỗng)_    | API key 9Router (provider mặc định)                             |
+| `MYSQL_ROOT_PASSWORD`  | `password`  | Mật khẩu root MySQL; Docker Compose dùng để dựng `DATABASE_URL` |
+| `MYSQL_DATABASE`       | `cvextract` | Tên database; Docker Compose dùng để dựng `DATABASE_URL`        |
 
-| Biến                   | Default       | Mô tả                                        |
-| ----------------------- | ------------- | ---------------------------------------------- |
-| `MYSQL_ROOT_PASSWORD` | `password`  | Mật khẩu root MySQL trong container          |
-| `MYSQL_DATABASE`      | `cvextract` | Tên database được tạo khi container start |
+**1b. Optional overrides** - `config.py` (và `providers.py`) có đọc các biến này, nhưng chúng **không nằm trong `.env.example`** vì đã có default hợp lý hoặc do Docker Compose tự set. Chỉ thêm vào `.env` khi muốn đổi.
 
-### Database URL
+| Biến                   | Default                                              | Ý nghĩa                                                              |
+| ---------------------- | ---------------------------------------------------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`         | `mysql+aiomysql://root:<pw>@localhost:3306/<db>`      | Override toàn bộ chuỗi kết nối MySQL; Compose tự set host = `mysql` |
+| `QDRANT_URL`           | `http://localhost:6333`                               | Endpoint Qdrant; Compose tự set host = `qdrant`                       |
+| `CV_RAW_TEXT_DIR`      | `tests/extraction/raw_txt`                            | Thư mục dump raw text sau extract để debug; để rỗng để tắt          |
+| `<PROVIDER>_BASE_URL`  | _(theo provider)_                                    | Override base URL endpoint từng provider, vd `ROUTER9_BASE_URL`      |
 
-| Biến            | Default                                                 | Mô tả                                                                                                            |
-| ---------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL` | `mysql+aiomysql://root:password@mysql:3306/cvextract` | Connection string MySQL. Docker Compose dùng host =`mysql` (tên service); chạy local đổi sang `localhost` |
+`<PROVIDER>_BASE_URL` suy ra từ tên `*_API_KEY` (vd `ROUTER9_API_KEY` -> `ROUTER9_BASE_URL`). Default theo provider: `groq` = `https://api.groq.com/openai/v1`, `nvidia` = `https://integrate.api.nvidia.com/v1`, `9router` = `http://localhost:20128/v1`. Trong Docker, `ROUTER9_BASE_URL` mặc định trỏ tới service `router9` (`http://router9:20128/v1`).
 
-### Qdrant (vector database)
+### 2. Tuning constants (`config.py`)
 
-| Biến                 | Default                | Mô tả                                                                                 |
-| --------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
-| `QDRANT_URL`        | `http://qdrant:6333` | URL Qdrant. Docker Compose dùng host =`qdrant`; chạy local đổi sang `localhost` |
-| `QDRANT_COLLECTION` | `cv_chunks_v1`       | Tên collection đang dùng:`cv_chunks_v1` (default, 384d)                            |
+Sửa trực tiếp [`core/config.py`](core/config.py), **không** đặt trong `.env`.
 
-### Embedding & Reranker (cho semantic search + chat)
+**LLM (parsing + chat)**
 
-| Biến               | Default                                   | Mô tả                                                                                                                                     |
-| ------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EMBEDDING_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2` | Model sentence-transformers dùng để biến text thành vector. Phải match với `QDRANT_COLLECTION` về dim                             |
-| `EMBEDDING_DIM`   | `384`                                   | Số chiều của vector. Phải khớp với model, đổi sai sẽ báo lỗi lúc khởi động                                                   |
-| `RERANKER_MODEL`  | `BAAI/bge-reranker-v2-m3`               | Model cross-encoder để chấm điểm lại lần 2. Để rỗng (`RERANKER_MODEL=`) để tắt rerank cho nhanh nhưng chính xác kém hơn |
+| Hằng số                  | Default     | Ý nghĩa                                                              |
+| ------------------------ | ----------- | --------------------------------------------------------------------- |
+| `PARSING_LLM_PROVIDER`   | `9router`   | Provider parse CV: `groq` / `nvidia` / `9router`                      |
+| `PARSING_LLM_MODEL`      | `llm`       | Tên model (hoặc combo 9Router) dùng để parse                         |
+| `CHAT_LLM_PROVIDER`      | `9router`   | Provider cho chat                                                     |
+| `CHAT_LLM_MODEL`         | `llm`       | Tên model (hoặc combo 9Router) dùng cho chat                         |
+| `CV_CONFIDENCE_THRESHOLD`| `0.5`       | Confidence tối thiểu từ LLM để công nhận là CV, dưới ngưỡng trả 422 |
 
-### Conversational Chat
+**Vector DB + Embedding/Rerank**
 
-| Biến                            | Default                                       | Mô tả                                                                                                                                                                                                                                                     |
-| -------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CHAT_LLM_MODEL`               | `meta-llama/llama-4-scout-17b-16e-instruct` | Model Groq dùng cho cả 2 bước: viết lại câu hỏi (condense) và trả lời (answer)                                                                                                                                                                   |
-| `CHAT_SESSION_TTL_HOURS`       | `24`                                        | Phiên chat không hoạt động quá số giờ này thì task nền tự xoá                                                                                                                                                                                  |
-| `CHAT_HISTORY_LAST_N`          | `10`                                        | Số tin nhắn gần nhất load vào prompt khi viết lại câu hỏi. Tăng để nhớ lâu hơn nhưng tốn token, giảm để tiết kiệm                                                                                                                     |
-| `CHAT_REFUSAL_SCORE_THRESHOLD` | `0.3`                                       | Điểm cao nhất của đoạn CV tìm được dưới ngưỡng này thì bot từ chối luôn, không gọi AI trả lời. Score đã sigmoid về 0..1 cho cả khi có/không reranker. Log có `top_score=X.XXX` cho mọi query để tham khảo điều chỉnh |
+| Hằng số           | Default                                  | Ý nghĩa                                              |
+| ----------------- | ---------------------------------------- | ----------------------------------------------------- |
+| `QDRANT_COLLECTION`| `cv_chunks_v1`                          | Tên collection Qdrant                                 |
+| `EMBEDDING_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2`  | Bi-encoder, biến text thành vector                  |
+| `EMBEDDING_DIM`   | `384`                                    | Số chiều vector, **phải khớp** `EMBEDDING_MODEL`     |
+| `RERANKER_MODEL`  | `BAAI/bge-reranker-v2-m3`                | Cross-encoder chấm lại; để rỗng để tắt rerank        |
+
+**Retrieval + Chunker**
+
+| Hằng số                  | Default | Ý nghĩa                                                  |
+| ------------------------ | ------- | --------------------------------------------------------- |
+| `MAX_CHUNKS_PER_CV`      | `3`     | Mỗi CV tối đa N chunks trong kết quả                     |
+| `RERANK_CANDIDATES`      | `40`    | Số kết quả thô lấy từ Qdrant để đưa vào rerank          |
+| `UNLIMITED_FETCH_LIMIT`  | `10000` | Limit cứng khi `top_k=None` để bảo vệ Qdrant            |
+| `SKILLS_PER_CHUNK`       | `10`    | Số skill mỗi chunk khi phải chia nhỏ                     |
+| `MAX_SKILLS_SINGLE_CHUNK`| `15`    | Quá ngưỡng này thì skills tách thành nhiều chunk          |
+
+**JD matching**
+
+| Hằng số                   | Default           | Ý nghĩa                                                                              |
+| ------------------------- | ----------------- | ------------------------------------------------------------------------------------- |
+| `JD_AGG_WEIGHTS`          | `[0.5, 0.3, 0.2]` | Trọng số top-N chunks/CV khi tính điểm aggregate; **tổng = 1.0**, `len()` quyết định N |
+| `JD_FALLBACK_SUMMARY_CHARS`| `500`            | Parse JD fail thì cắt N ký tự raw JD làm summary                                      |
+
+**Chat**
+
+| Hằng số                       | Default | Ý nghĩa                                              |
+| ----------------------------- | ------- | ----------------------------------------------------- |
+| `CHAT_SESSION_TTL_HOURS`      | `24`    | Phiên chat idle quá N giờ thì task nền tự xoá        |
+| `CHAT_HISTORY_LAST_N`         | `10`    | Số message gần nhất nạp vào prompt condense          |
+| `CHAT_REFUSAL_SCORE_THRESHOLD`| `0.3`   | Top score dưới ngưỡng thì bot từ chối trả lời       |
+| `CHAT_RETRIEVE_TOP_K`         | `5`     | Số đoạn CV lấy ra mỗi câu hỏi chat                   |
 
 ---
 
 ## Endpoints
 
-| Method     | Endpoint                                | Mô tả                                    |
-| ---------- | --------------------------------------- | ------------------------------------------ |
-| `GET`    | `/`                                   | Frontend                                   |
-| `POST`   | `/UploadCV`                           | Upload 1 file CV                           |
-| `POST`   | `/UploadMultipleCVs`                  | Upload cả thư mục                       |
-| `GET`    | `/Storage`                            | Xem tất cả CV đã lưu                  |
-| `POST`   | `/Search/Semantic`                    | Tìm CV theo ngữ nghĩa (vector + rerank) |
-| `POST`   | `/Chat/Sessions`                      | Tạo phiên chat lock vào 1 CV            |
-| `POST`   | `/Chat/Sessions/{id}/Messages`        | Gửi message (non-streaming)               |
-| `POST`   | `/Chat/Sessions/{id}/Messages/Stream` | Gửi message, stream từng token           |
-| `GET`    | `/Chat/Sessions/{id}`                 | Xem full history của session              |
-| `DELETE` | `/Chat/Sessions/{id}`                 | Xoá session (CASCADE messages)            |
+| Method     | Endpoint                                | Mô tả                                      |
+| ---------- | --------------------------------------- | -------------------------------------------- |
+| `GET`    | `/`                                   | Frontend SPA                                 |
+| `POST`   | `/UploadCV`                           | Upload 1 file CV                             |
+| `POST`   | `/UploadMultipleCVs`                  | Upload batch nhiều file (từ folder picker) |
+| `GET`    | `/Storage`                            | List tất cả CV đã lưu                   |
+| `GET`    | `/Storage/{cv_key}`                   | Chi tiết 1 CV                               |
+| `PATCH`  | `/Storage/{cv_key}`                   | Update CV + re-index Qdrant                  |
+| `DELETE` | `/Storage/{cv_key}`                   | Xoá CV (MySQL + Qdrant + registry)          |
+| `POST`   | `/Search/Semantic`                    | Tìm CV theo ngữ nghĩa (vector + rerank)   |
+| `POST`   | `/Match/JD`                           | Match JD text -> top-K CV phù hợp          |
+| `POST`   | `/Match/JD/Upload`                    | Match JD file PDF/DOCX -> top-K CV           |
+| `POST`   | `/Chat/Sessions`                      | Tạo phiên chat gắn với 1 CV              |
+| `POST`   | `/Chat/Sessions/{id}/Messages`        | Gửi message (non-streaming)                 |
+| `POST`   | `/Chat/Sessions/{id}/Messages/Stream` | Gửi message, stream từng token             |
+| `GET`    | `/Chat/Sessions/{id}`                 | Full history của session                    |
+| `DELETE` | `/Chat/Sessions/{id}`                 | Xoá session (CASCADE messages)              |
 
 ---
 
-## Ví dụ response
+## Example responses
+
+### Upload CV
 
 ```json
 {
@@ -118,188 +161,301 @@ Docker Compose dùng 2 biến này để khởi tạo container MySQL. Khi chạ
     "file_name": "nguyen_van_a.pdf",
     "extension": ".pdf",
     "status": "success",
-    "text": {
-      "name": "Nguyễn Văn A",
-      "email": "nguyenvana@gmail.com",
-      "phone": "0901234567",
-      "years_exp": 3,
-      "skills": ["Python", "FastAPI", "MySQL", "Docker"],
-      "education": [
-        {
-          "degree": "Cử nhân Công nghệ thông tin",
-          "school": "Đại học Bách Khoa Hà Nội",
-          "duration": "2018 - 2022"
-        }
-      ],
-      "work_history": [
-        {
-          "role": "Backend Developer",
-          "company": "Công ty XYZ",
-          "duration": "2022 - 2024",
-          "description": "Phát triển hệ thống thanh toán microservices với Python/FastAPI, Kafka, PostgreSQL."
-        }
-      ],
-      "projects": [
-        {
-          "name": "CVExtract",
-          "description": "Hệ thống trích xuất CV với RAG",
-          "tech": ["Python", "FastAPI", "Qdrant"],
-          "duration": "2024",
-          "url": "https://github.com/user/cvextract"
-        }
-      ],
-      "awards": [
-        {
-          "name": "Giải nhất hackathon ABC",
-          "issuer": "Công ty ABC",
-          "year": "2023",
-          "description": ""
-        }
-      ],
-      "certifications": [
-        {
-          "name": "AWS Solutions Architect Associate",
-          "issuer": "Amazon Web Services",
-          "year": "2023"
-        }
-      ],
-      "summary": "Backend developer với 3 năm kinh nghiệm Python..."
-    }
+    "text": "{\n  \"name\": \"Nguyễn Văn A\",\n  \"email\": \"nguyenvana@example.com\",\n  ... \n}"
   }
 }
 ```
 
-3 trường `projects`, `awards`, `certifications` đều optional — nếu CV không có thì trả mảng rỗng.
+`text` là JSON string đã escape (`json.dumps(parsed, ensure_ascii=False, indent=2)`). Nội dung sau khi decode, đầy đủ các trường:
+
+```json
+{
+  "name": "Nguyễn Văn A",
+  "email": "nguyenvana@example.com",
+  "phone": "0901234567",
+  "years_exp": 3,
+  "skills": ["Python", "FastAPI", "SQL", "PostgreSQL", "Docker", "Kafka"],
+  "education": [
+    {
+      "degree": "Cử nhân Công nghệ thông tin",
+      "school": "Đại học Bách Khoa Hà Nội",
+      "duration": "2018 - 2022"
+    }
+  ],
+  "work_history": [
+    {
+      "role": "Backend Developer",
+      "company": "Công ty XYZ",
+      "duration": "2022 - 2024",
+      "description": "Phát triển hệ thống thanh toán microservices với Python/FastAPI, Kafka, PostgreSQL. Tối ưu latency p99 từ 800ms xuống 120ms."
+    }
+  ],
+  "projects": [
+    {
+      "name": "Hệ thống gợi ý sản phẩm",
+      "description": "Xây dựng recommendation engine cho sàn thương mại điện tử, vai trò backend lead",
+      "tech": ["Python", "FastAPI", "Docker"],
+      "duration": "2023",
+      "url": "https://github.com/nguyenvana/recsys"
+    }
+  ],
+  "awards": [
+    {
+      "name": "Giải nhất Hackathon",
+      "issuer": "FPT Software",
+      "year": "2021",
+      "description": "Giải pháp tối ưu logistics"
+    }
+  ],
+  "certifications": [
+    {
+      "name": "AWS Solutions Architect Associate",
+      "issuer": "Amazon Web Services",
+      "year": "2023"
+    }
+  ],
+  "summary": "Backend developer 3 năm kinh nghiệm Python, FastAPI, microservices"
+}
+```
+
+`years_exp` có thể `null` nếu CV không ghi rõ. Các trường mảng (`skills`, `education`, `work_history`, `projects`, `awards`, `certifications`) trả `[]` khi CV không có thông tin tương ứng.
+
+### Match JD
+
+```json
+{
+  "parsed_jd": {
+    "summary": "Backend Engineer 3+ năm Python, FastAPI",
+    "required_skills": ["Python", "FastAPI", "PostgreSQL"],
+    "min_years_exp": 3,
+    "max_years_exp": null
+  },
+  "total_cvs": 5,
+  "results": [
+    {
+      "cv_key": "nguyen_van_a",
+      "cv": { /* full CV dict */ },
+      "score": 0.873,
+      "matched_chunks": [
+        { "section": "work_history", "text": "...", "score": 0.91 },
+        { "section": "skills", "text": "...", "score": 0.85 }
+      ]
+    }
+  ]
+}
+```
 
 ---
 
-## Kiến trúc
+## Architecture
 
-Project tổ chức theo **feature based**. Mỗi feature có `service.py` + `schemas.py` ở gốc, các file phụ chia vào subfolder theo trách nhiệm.
+Project tổ chức theo **feature based** + **shared core layer**. Code dùng chung (LLM client, vector store, embeddings, schemas) nằm ở `core/`, mỗi feature có `service.py` + `schemas.py`.
 
 ```
-├── main.py                  # Điều phối services, định nghĩa endpoints
-├── core/                    # Hạ tầng dùng chung
-│   ├── config.py            #   - Đọc biến môi trường
-│   ├── database.py          #   - SQLAlchemy engine + session
-│   ├── models.py            #   - cv_data, chat_sessions, chat_messages
-│   └── logger.py            #   - Cấu hình logging
+├── main.py                       # Endpoints + lifespan; điều phối services
+├── core/                         # Shared layer
+│   ├── config.py                 #   - Đọc env vars
+│   ├── database.py               #   - SQLAlchemy async engine
+│   ├── models.py                 #   - ORM: cv_data, chat_sessions, chat_messages
+│   ├── logger.py                 #   - Logging config (file rotate)
+│   ├── schemas.py                #   - Chunk, SearchHit (shared retrieval/matching/chat)
+│   ├── registries.py             #   - NameRegistry + SkillRegistry (in-memory filter)
+│   ├── retrieval_utils.py        #   - cap_per_cv
+│   ├── vector_store.py           #   - Qdrant async wrapper
+│   ├── llm/                      #   - LLM client (retry + JSON repair)
+│   │   ├── client.py             #     - LLMClient.extract_json
+│   │   └── providers.py          #     - Groq / NVIDIA / 9Router adapters (OpenAI-compatible)
+│   └── embeddings/               #   - Sentence-transformers
+│       ├── embedder.py           #     - Bi-encoder (text -> vector)
+│       └── reranker.py           #     - Cross-encoder (rerank)
 ├── features/
-│   ├── extraction/          # 1. Đọc text từ PDF/DOCX
+│   ├── extraction/               # 1. Đọc text từ PDF/DOCX
 │   │   ├── service.py
-│   │   ├── extractors/      #   - PdfExtractor (pdfplumber), DocxExtractor (python-docx)
+│   │   ├── extractors/           #   - PdfExtractor, DocxExtractor
 │   │   └── schemas.py
-│   ├── parsing/             # 2. Gọi LLM parse text thành JSON
+│   ├── parsing/                  # 2. LLM parse text -> JSON
 │   │   ├── service.py
-│   │   ├── llm/             #   - Client + providers (Groq, Gemini, NVIDIA) + prompt
+│   │   ├── llm/prompts.py        #   - System + extract template
 │   │   └── schemas.py
-│   ├── storage/             # 3. Lưu/đọc CV trong MySQL
+│   ├── storage/                  # 3. CRUD MySQL cv_data
 │   │   ├── service.py
 │   │   └── schemas.py
-│   ├── retrieval/           # 4. Chunk + embed + Qdrant vector search + rerank
-│   │   ├── service.py    
-│   │   ├── models/          #   - Embedder + Reranker (sentence-transformers)
-│   │   ├── pipeline/        #   - Chunker + VectorStore + query parser
+│   ├── retrieval/                # 4. Chunk + embed + search + rerank
+│   │   ├── service.py
+│   │   ├── pipeline/             #   - chunker.py + filters.py (query parser)
 │   │   └── schemas.py
-│   └── chat/                # 5. Conversational RAG (chat với 1 CV)
-│       ├── service.py    
-│       ├── llm/             #   - 2 pipeline (condense, answer) + prompts
-│       ├── memory/          #   - SessionStore (lưu session + message vào MySQL)
+│   ├── matching/                 # 5. JD <-> CV matching
+│   │   ├── service.py            #   - parse JD -> search -> aggregate top-N -> score
+│   │   ├── llm/prompts.py
+│   │   └── schemas.py
+│   └── chat/                     # 6. Conversational RAG (1 CV)
+│       ├── service.py            #   - condense + answer; streaming
+│       ├── llm/                  #   - answer.py, condense.py, prompts.py
+│       ├── memory/store.py       #   - SessionStore (DB-backed) + cleanup task
 │       └── schemas.py
-└── static/index.html        # Frontend
+└── static/                       # Frontend (vanilla JS, no build)
+    ├── index.html                #   - Tabs: Upload file / Folder / Hồ sơ / JD Match
+    ├── css/style.css
+    └── js/{common,upload,storage,modal,jd_match,chat}.js
 ```
 
-**Lý do chọn feature based:** thêm tính năng mới chỉ đụng 1 folder duy nhất, không sửa nhiều chỗ.
+**Lý do tách core/:** LLM client, vector store, embeddings dùng bởi 3 feature (retrieval, matching, chat). Tách ra để tránh duplicate + import vòng giữa features.
 
 ---
 
-## Flow xử lý
+## Processing flow
 
-### Upload
+### Upload CV
 
-Khi user upload 1 file CV qua `POST /UploadCV`, request đi qua 4 bước:
+`POST /UploadCV` qua 4 bước:
 
-1. **Extraction** - `CVExtractorService` chọn extractor phù hợp theo extension (`PdfExtractor` dùng pdfplumber, `DocxExtractor` dùng python-docx). Việc đọc file chạy trong thread riêng (`asyncio.to_thread`) để không block event loop.
-2. **Parsing** - `ParsingService` gửi text cho LLM (Groq Llama 4 Scout mặc định) kèm prompt yêu cầu trả về JSON đúng schema (name, email, skills, work_history, projects, awards, certifications, ...). Response được làm sạch (bỏ markdown fence, bỏ thẻ `<think>` nếu có) rồi parse thành dict.
-3. **Storage** - `StorageService` upsert vào MySQL: nếu `key` (= tên file viết thường, không đuôi) đã tồn tại thì update, không thì insert mới. Vừa lưu raw JSON vừa tách ra các cột riêng (name, email, phone, skills, projects, awards, certifications...) để query nhanh.
-4. **Index vector** - `RetrievalService.index_cv` cắt CV thành các chunk theo từng section (header, summary, skills, education, work_history, projects, awards, certifications), biến mỗi đoạn thành vector và upsert vào Qdrant. Lỗi ở bước này không làm fail request (MySQL là nguồn chính, Qdrant có thể rebuild).
+1. **Extraction** - `CVExtractorService` dùng `PdfExtractor` (pdfplumber, hỗ trợ bảng) hoặc `DocxExtractor` (python-docx). Chạy trong `asyncio.to_thread` tránh block event loop.
+2. **Parsing** - `ParsingService` gọi LLM (Groq mặc định) trả về JSON đúng schema. Response làm sạch (bỏ markdown fence, `<think>`...) rồi parse. Có cơ chế repair JSON cho trailing comma, mismatched quote.
+3. **Classify** - Check `is_cv` + `confidence` từ LLM, dưới `CV_CONFIDENCE_THRESHOLD` thì trả 422 "Not a CV". Pop 2 field meta khỏi parsed trước khi lưu.
+4. **Storage + index** - `StorageService` upsert MySQL (key = filename lowercase, no ext); `RetrievalService.index_cv` cắt thành chunks theo section (header, summary, skills, education, work_history, projects, awards, certifications), embed, upsert Qdrant. Đồng thời cập nhật `NameRegistry` + `SkillRegistry` (in-memory) để query filter thấy CV mới. Lỗi index không fail request (MySQL là nguồn chính).
 
-**Với batch upload (`/UploadMultipleCVs`):** cả extraction và parsing chạy song song bằng `asyncio.gather`.
+**Batch upload** (`/UploadMultipleCVs`): browser dùng `webkitdirectory` enumerate file, POST multipart; backend lọc `.pdf/.docx`, extract + parse song song bằng `asyncio.gather`, file unsupported báo lỗi cùng response.
 
-### Search
+### Semantic Search
 
-Khi user gửi câu truy vấn qua `POST /Search/Semantic`, request đi qua 5 bước:
+`POST /Search/Semantic` qua 5 bước:
 
-1. **Parse query** - `parse_query()` tách các filter ra khỏi câu hỏi: số năm kinh nghiệm (vd "5 năm"), skill (vd "Python", "FastAPI"), role (vd "data engineer", "developer"). Phần text còn lại vẫn dùng để embed.
-2. **Embed** - `Embedder` biến câu hỏi thành vector (chuẩn hoá độ dài để so sánh nhanh). Chạy trong thread riêng vì là phép tính nặng CPU.
-3. **Vector search + filter** — Qdrant tìm top-20 đoạn CV gần nhất với vector câu hỏi, áp filter cứng theo `years_exp`/`skills` nếu có. Nếu filter ra 0 kết quả thì tự bỏ filter, search lại.
-4. **Rerank** - `Reranker` (cross-encoder bge-reranker-v2-m3) chấm lại điểm từng cặp (câu hỏi, đoạn CV), sắp xếp giảm dần. Điểm sigmoid về 0..1 cho đồng nhất.
-5. **Role boost** - đoạn nào chứa role khớp với câu hỏi được kéo lên đầu (sort ổn định, giữ thứ tự rerank trong cùng nhóm). Cuối cùng cắt top-K, gom theo `cv_key`, fetch full CV từ MySQL trả về.
+1. **Parse query** - `parse_query()` tách filter ra khỏi câu hỏi: years (vi/en: "tối thiểu 5 năm", "5+ năm", "dưới 10 năm", "at least 3 yrs"), skills (lấy động từ `SkillRegistry` - chỉ skill đã từng xuất hiện trong DB).
+2. **Match tên** - `NameRegistry.match()` tìm cv_keys có MỌI token tên xuất hiện trong query (vd "Nguyễn Văn A có Python?" -> match CV tên "Nguyễn Văn A").
+3. **Embed + Qdrant search** - `Embedder` biến query -> vector; Qdrant search với hard filter (years/skills/cv_keys).
+4. **Rerank** - Cross-encoder chấm lại điểm; sigmoid về 0..1 cho đồng nhất với cosine.
+5. **Cap + group** - `cap_per_cv(MAX_CHUNKS_PER_CV)` đảm bảo mỗi CV ≤ 3 chunks. Group theo `cv_key`, fetch full CV từ MySQL, sort theo score giảm dần.
+
+`top_k=null` (unlimited): skip rerank vì pool có thể lớn, chỉ trả raw Qdrant cosine.
+
+### JD Matching
+
+`POST /Match/JD` (text) hoặc `/Match/JD/Upload` (PDF/DOCX) qua 7 bước:
+
+1. **Parse JD** - LLM extract `summary`, `required_skills`, `min/max_years_exp`. Fail thì fallback dùng raw JD làm summary.
+2. **Embed summary** - biến summary thành query vector.
+3. **Search Qdrant** - lấy tối đa `UNLIMITED_FETCH_LIMIT` chunks; hard filter years/skills tuỳ `strict_*_filter` flag.
+4. **Cap chunks/CV** - mỗi CV tối đa `MAX_CHUNKS_PER_CV` chunks.
+5. **Rerank** (nếu có reranker) - chấm lại pool đã cap, cap lần 2 idempotent.
+6. **Aggregate** - mỗi CV lấy top-N chunks (N = len(`JD_AGG_WEIGHTS`)), tính weighted avg score; CV có < N chunks thì renormalize weights theo n thực dùng.
+7. **Fetch CV + slice top_k** - lấy CV detail từ MySQL, skip CV bị xoá khỏi DB nhưng còn trong Qdrant.
 
 ### Conversational Chat
 
-Khi user gửi 1 tin nhắn qua `POST /Chat/Sessions/{id}/Messages`, request đi qua 5 bước:
+`POST /Chat/Sessions/{id}/Messages[/Stream]` qua 5 bước:
 
-1. **Load session + history** - `SessionStore.get()` lấy thông tin phiên (kèm `cv_key` đã lock). `get_history()` lấy N tin nhắn gần nhất (mặc định 10) làm ngữ cảnh cho bước viết lại câu hỏi. Không có session → trả 404.
-2. **Condense** - nếu có lịch sử, gọi AI viết lại câu hỏi follow-up thành câu đầy đủ (vd "anh ấy có dùng React?" -> "Nguyễn Văn A có dùng React?"). Lượt đầu (chưa có lịch sử) thì bỏ qua bước này, dùng nguyên câu hỏi gốc.
-3. **Retrieve** - `RetrievalService.search_within_cv()` tìm top-5 đoạn CV liên quan, lọc bắt buộc theo `cv_key` của session (không fallback). Không apply role boost vì chỉ có 1 CV trong pool.
-4. **Guardrail** - nếu không tìm được đoạn nào hoặc điểm cao nhất dưới `CHAT_REFUSAL_SCORE_THRESHOLD` (mặc định 0.3), trả ngay reject, không gọi llm trả lời (tiết kiệm token). Câu Reject vẫn được lưu vào DB.
-5. **Answer + persist** - `Answer AI` (ChatGroq llama-4-scout) sinh câu trả lời dựa trên các đoạn CV, prompt cấm bịa. Sau khi AI trả lời xong, `append_pair()` lưu cả tin nhắn user và bot vào DB trong 1 lần ghi (nếu lỗi giữa chừng thì không cái nào lưu, tránh bỏ rớt lẻ tin user).
+1. **Load session + history** - `SessionStore.get()` lấy session info (`cv_key` đã lock). `get_history()` lấy `CHAT_HISTORY_LAST_N` message gần nhất.
+2. **Condense** - lượt đầu (no history) bỏ qua. Sau đó LLM viết lại câu hỏi follow-up thành standalone (vd "anh ấy có dùng React?" -> "Nguyễn Văn A có dùng React?").
+3. **Retrieve** - `RetrievalService.search_within_cv()` lấy top `CHAT_RETRIEVE_TOP_K` chunks trong đúng 1 CV (filter cứng `cv_key`).
+4. **Guardrail** - top score < `CHAT_REFUSAL_SCORE_THRESHOLD` (0.3) -> trả reject ngay, không gọi answer LLM. Refusal vẫn được lưu vào DB.
+5. **Answer + persist** - Answer LLM dùng context chunks, prompt cấm bịa. `append_pair()` lưu user + assistant message trong 1 transaction.
 
-**Bản streaming** (`/Stream`) chạy y hệt 5 bước trên nhưng bước 5 dùng `astream()` gửi từng token text về client. Cuối stream gửi kèm ký hiệu `\n__SOURCES__\n` + JSON sources để frontend cắt chuỗi tách phần trả lời và phần nguồn. Tin nhắn chỉ được lưu sau khi stream xong; nếu client đóng tab giữa chừng thì không lưu phần dở.
+**Streaming** (`/Stream`): bước 5 dùng `astream_events` yield từng text chunk. Cuối stream gửi `\n__SOURCES__\n` sentinel + JSON sources để frontend tách. Tin nhắn chỉ lưu sau khi stream xong (client đóng giữa chừng -> không lưu phần dở).
 
-**Persistence** - phiên chat + tin nhắn lưu vào MySQL (`chat_sessions`, `chat_messages` với FK CASCADE). Sống qua restart server. Task nền xoá phiên quá `CHAT_SESSION_TTL_HOURS` chạy mỗi 1h. Frontend lưu map `{cv_key: session_id}` trong localStorage để giữ chat khi refresh trang; mỗi CV có nút "Bắt đầu lại" để xoá session cũ và tạo mới.
+**Persistence**: `chat_sessions` + `chat_messages` lưu MySQL với FK CASCADE. Task nền xoá phiên quá `CHAT_SESSION_TTL_HOURS` chạy mỗi 1h (UTC clock, đồng bộ với `UTC_TIMESTAMP()` của DB). Frontend lưu `{cv_key: session_id}` trong localStorage để giữ chat qua reload trang.
 
 ---
 
-## Test bằng curl
+## UI
 
-### Upload & Storage
+Frontend SPA 4 tab:
+
+- **Upload file** - upload 1 CV (drag-drop hoặc click chọn file)
+- **Upload Folder** - chọn 1 folder, browser enumerate file, gửi multipart batch
+- **Hồ sơ** - list CV + search semantic. Click CV -> modal:
+  - Mode **view**: hiện đầy đủ thông tin
+  - Mode **edit**: sửa từng field/entry, save -> re-index Qdrant
+  - Mode **chat**: chat với CV trong modal - session lưu localStorage, reset/xoá session bằng nút Reset
+  - Xoá CV
+- **JD Match** - paste JD text hoặc upload PDF/DOCX, hệ thống extract yêu cầu, embed, match top-K CV với score bar
+
+---
+
+## Testing with curl
+
+### Upload & CRUD
 
 ```bash
 # Upload 1 file
-curl -X POST http://localhost:8000/UploadCV \
-  -F "file=@/path/to/cv.pdf"
+curl -X POST http://localhost:8000/UploadCV -F "file=@/path/to/cv.pdf"
 
-# Upload cả thư mục
+# Upload batch (browser folder picker - qua API gửi nhiều file)
 curl -X POST http://localhost:8000/UploadMultipleCVs \
-  -F "folder_path=/path/to/cv_folder"
+  -F "files=@cv1.pdf" -F "files=@cv2.pdf" -F "files=@cv3.docx"
 
-# Xem tất cả CV đã lưu
+# List tất cả
 curl http://localhost:8000/Storage
+
+# Chi tiết 1 CV
+curl http://localhost:8000/Storage/nguyen_van_a
+
+# Update (gửi parsed dict đầy đủ)
+curl -X PATCH http://localhost:8000/Storage/nguyen_van_a \
+  -H "Content-Type: application/json" \
+  -d '{"parsed": {"name": "Nguyễn Văn A", "email": "...", "skills": ["Python"], ...}}'
+
+# Xoá
+curl -X DELETE http://localhost:8000/Storage/nguyen_van_a
 ```
 
-### Tìm kiếm ngữ nghĩa
+### Semantic search
 
 ```bash
+# Top-K mặc định (top_k=null = unlimited, skip rerank)
 curl -X POST http://localhost:8000/Search/Semantic \
   -H "Content-Type: application/json" \
-  -d '{"query": "kỹ sư Python có kinh nghiệm FastAPI", "top_k": 5}'
+  -d '{"query": "kỹ sư Python 3 năm FastAPI", "top_k": 5}'
+
+# Filter qua câu hỏi tự nhiên
+curl -X POST http://localhost:8000/Search/Semantic \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Nguyễn Văn A có biết Docker?", "top_k": 10}'
 ```
 
-### Chat bot
+### JD Matching
 
 ```bash
-# 1. Tạo session (cv_key = tên file không đuôi, lowercase)
+# Paste JD text
+curl -X POST http://localhost:8000/Match/JD \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jd_text": "Tuyển Backend Engineer 3+ năm Python, FastAPI, PostgreSQL. Đã làm với Docker, Kafka.",
+    "top_k": 5,
+    "strict_skills_filter": false,
+    "strict_years_filter": true
+  }'
+
+# Upload JD file
+curl -X POST http://localhost:8000/Match/JD/Upload \
+  -F "file=@jd.pdf" -F "top_k=5" -F "strict_years_filter=true"
+```
+
+### Chatbot
+
+```bash
+# 1. Tạo session (cv_key = filename lowercase, no ext)
 curl -X POST http://localhost:8000/Chat/Sessions \
   -H "Content-Type: application/json" \
   -d '{"cv_key": "alex_petrov"}'
-# Trả về: {"session_id":"1f82537c-006d-...","cv_key":"alex_petrov"}
+# Response: {"session_id":"1f82537c-006d-...","cv_key":"alex_petrov"}
 
-# 2. Chat non-streaming
-SID=1f82537c-006d-469b-8159-803d760543d1
-curl -X POST http://localhost:8000/Chat/Sessions/<session_id>/Messages \
+session_id=<session_id từ bước 1>
+
+# 2. Non-streaming
+curl -X POST http://localhost:8000/Chat/Sessions/$session_id/Messages \
   -H "Content-Type: application/json" \
   -d '{"message": "Ứng viên có biết Python?"}'
 
-# 3. Chat streaming (curl -N để xem token chảy realtime)
-curl -N -X POST http://localhost:8000/Chat/Sessions/<session_id>/Messages/Stream \
+# 3. Streaming (curl -N để xem token chảy realtime)
+curl -N -X POST http://localhost:8000/Chat/Sessions/$session_id/Messages/Stream \
   -H "Content-Type: application/json" \
-  -d '{"message": "Anh ấy đã làm ở đâu?"}'
+  -d '{"message": "Anh ấy đã làm ở công ty nào?"}'
 
-# 4. Xem full history
-curl http://localhost:8000/Chat/Sessions/<session_id>
+# 4. Full history
+curl http://localhost:8000/Chat/Sessions/$session_id
 
-# 5. Xoá session (CASCADE xoá luôn messages)
-curl -X DELETE http://localhost:8000/Chat/Sessions/<session_id>
+# 5. Xoá session
+curl -X DELETE http://localhost:8000/Chat/Sessions/$session_id
 ```
+
+---

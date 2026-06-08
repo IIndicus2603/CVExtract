@@ -1,15 +1,15 @@
-# Class cha của các extractor (PDF, DOCX...)
-# Mỗi loại file con sẽ override "extract()" để đọc text từ file
+# Base class cho các extractor (PDF, DOCX, ...)
 
 import asyncio
 from abc import ABC, abstractmethod
 
 
 class BaseExtractor(ABC):
-    # Hàm sync: đọc file và trả về text. Subclass phải implement
     @abstractmethod
-    def extract(self, file_path: str) -> str: ...
+    def extract(self, file_path: str) -> str:
+        """Đọc file (sync) thành text, subclass phải implement"""
+        ...
 
-    # Wrapper async: chạy "extract()" trong thread riêng để không block event loop
     async def extract_async(self, file_path: str) -> str:
+        """Async wrapper chạy extract() trong thread riêng để không block event loop"""
         return await asyncio.to_thread(self.extract, file_path)

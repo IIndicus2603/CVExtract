@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
-
+.ruff_cache/
 # Virtualenv
 .venv/
 venv/
@@ -16,6 +16,7 @@ env/
 # IDE
 .vscode/
 .idea/
+.claude/
 
 # Logs & runtime
 logs/
@@ -28,6 +29,7 @@ Thumbs.db
 # Eval framework & test artifacts (local-only)
 tests/
 .pytest_cache/
+pytest.ini
 
 # Scripts dev/utility (local-only)
 scripts/
