@@ -1,22 +1,18 @@
-# pipeline để trả lời câu hỏi, dựa trên các đoạn CV đã tìm được
+# Answer, dùng context (CV chunks) trả lời câu hỏi
 
-from langchain_core.language_models import BaseChatModel
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable
-
-from features.chat.llm.prompts import ANSWER_PROMPT
-from features.retrieval.schemas import SearchHit
+from core.schemas import SearchHit
+from features.chat.llm.prompts import ANSWER_SYSTEM, ANSWER_USER_TEMPLATE
 
 
-def build_answer_chain(llm: BaseChatModel) -> Runnable:
-    prompt = ChatPromptTemplate.from_template(ANSWER_PROMPT)
-    return prompt | llm | StrOutputParser()
+def build_answer_messages(context: str, question: str) -> tuple[str, str]:
+    """Trả (system, user) prompts để gọi BaseProvider.chat/stream"""
+    return ANSWER_SYSTEM, ANSWER_USER_TEMPLATE.format(
+        context=context, question=question,
+    )
 
 
-# Gộp các đoạn thành 1 khối text dạng "[Section: <tên>]\n<nội dung>" để llm đọc
-# Nếu không có đoạn nào, trả về "không có thông tin" để llm reject
 def format_context(hits: list[SearchHit]) -> str:
+    """Gộp các đoạn thành '[Section, X]\\n<text>' khối, rỗng thì trả 'Không có thông tin.'"""
     if not hits:
         return "Không có thông tin."
     blocks = [f"[Section: {h.section}]\n{h.chunk_text}" for h in hits]

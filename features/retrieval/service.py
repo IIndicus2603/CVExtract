@@ -1,32 +1,35 @@
-# điều phối tìm kiếm CV: cắt nhỏ CV, biến text thành vector, lưu/tìm trong Qdrant, rerank
+# Điều phối retrieval, chunk rồi embed rồi upsert Qdrant, search + rerank
 
 import asyncio
 import logging
 import time
 
-from features.retrieval.models.embedder import Embedder
-from features.retrieval.models.reranker import Reranker
+from core.config import MAX_CHUNKS_PER_CV, RERANK_CANDIDATES, UNLIMITED_FETCH_LIMIT
+from core.embeddings.embedder import Embedder
+from core.embeddings.reranker import Reranker
+from core.registries import NameRegistry, SkillRegistry
+from core.retrieval_utils import cap_per_cv
+from core.schemas import SearchHit
+from core.vector_store import VectorStore
+
 from features.retrieval.pipeline.chunker import CVChunker
-from features.retrieval.pipeline.query_parser import parse_query, text_matches_role
-from features.retrieval.pipeline.vector_store import VectorStore
-from features.retrieval.schemas import SearchHit
-
-
-# Số kết quả thô lấy ra để rerank
-RERANK_CANDIDATES = 20
+from features.retrieval.pipeline.filters import parse_query
 
 logger = logging.getLogger(__name__)
 
 
 class RetrievalService:
-    def __init__(self, embedder: Embedder, vector_store: VectorStore, reranker: Reranker | None = None):
+    def __init__(self, embedder: Embedder, vector_store: VectorStore, reranker: Reranker | None = None, name_registry: NameRegistry | None = None, skill_registry: SkillRegistry | None = None):
+        """Compose embedder + vector_store + (optional) reranker + registries"""
         self._embedder = embedder
         self._vector_store = vector_store
         self._reranker = reranker
         self._chunker = CVChunker()
+        self._name_registry = name_registry
+        self._skill_registry = skill_registry
 
-    # Lưu 1 CV vào Qdrant: cắt nhỏ, biến text thành vector, ghi vào DB
     async def index_cv(self, cv_key: str, parsed: dict) -> int:
+        """Chunk + embed + upsert Qdrant, cập nhật registries"""
         if not parsed:
             logger.warning("Skip indexing '%s': empty parsed data", cv_key)
             return 0
@@ -36,7 +39,7 @@ class RetrievalService:
             logger.warning("Skip indexing '%s': no chunks generated", cv_key)
             return 0
 
-        # Biến text thành vector chạy nặng CPU, đưa ra thread riêng để không đứng app
+        # Encode chạy CPU-bound nên thread riêng tránh block event loop
         t0 = time.perf_counter()
         vectors = await asyncio.to_thread(
             self._embedder.encode,
@@ -47,15 +50,23 @@ class RetrievalService:
         await self._vector_store.delete_by_cv_key(cv_key)
         await self._vector_store.upsert_chunks(chunks, vectors)
 
+        if self._name_registry is not None:
+            await self._name_registry.add(cv_key, parsed.get("name"))
+        if self._skill_registry is not None:
+            await self._skill_registry.add(parsed.get("skills"))
+
         logger.info(
             "Indexed '%s': %d chunks (encode=%.2fs)",
             cv_key, len(chunks), encode_time,
         )
         return len(chunks)
 
-    # Helper chung: vector search Qdrant + rerank
-    # fallback_no_filter: 0 hit thì search lại bỏ years/skills (giữ cv_key)
-    # keep_pool_after_rerank: rerank giữ toàn bộ hits (cho role boost) hay cắt top_k luôn
+    async def remove_cv(self, cv_key: str) -> None:
+        """Xoá Qdrant chunks + NameRegistry, SkillRegistry không track per-cv nên skip"""
+        await self._vector_store.delete_by_cv_key(cv_key)
+        if self._name_registry is not None:
+            await self._name_registry.remove(cv_key)
+
     async def _search_common(
         self,
         *,
@@ -63,23 +74,20 @@ class RetrievalService:
         rerank_query: str,
         top_k: int,
         cv_key: str | None = None,
+        cv_keys: list[str] | None = None,
         min_years_exp: int | None = None,
+        max_years_exp: int | None = None,
         required_skills: list[str] | None = None,
-        fallback_no_filter: bool = False,
         keep_pool_after_rerank: bool = False,
     ) -> tuple[list[SearchHit], int, float]:
-        # Lấy nhiều kết quả thô hơn nếu có lớp rerank
+        """Vector search + (optional) rerank, keep_pool_after_rerank giữ toàn pool cho cap_per_cv caller chạy, ngược lại cắt top_k luôn"""
         fetch_k = RERANK_CANDIDATES if self._reranker else top_k
 
         hits = await self._vector_store.search(
-            query_vector, top_k=fetch_k, cv_key=cv_key,
-            min_years_exp=min_years_exp, required_skills=required_skills,
+            query_vector, top_k=fetch_k, cv_key=cv_key, cv_keys=cv_keys,
+            min_years_exp=min_years_exp, max_years_exp=max_years_exp,
+            required_skills=required_skills,
         )
-
-        # Nếu lọc ra 0 kết quả thì tìm lại không lọc (giữ cv_key nếu có)
-        if fallback_no_filter and not hits and (min_years_exp or required_skills):
-            logger.info("Lọc quá chặt, tìm lại không lọc")
-            hits = await self._vector_store.search(query_vector, top_k=fetch_k, cv_key=cv_key)
 
         rerank_time = 0.0
         if self._reranker and hits:
@@ -92,46 +100,52 @@ class RetrievalService:
 
         return hits, fetch_k, rerank_time
 
-    # Quy trình tìm kiếm: tách filter từ câu hỏi, search + rerank, ưu tiên role, lấy top-K
-    async def search(self, query: str, top_k: int = 5) -> list[SearchHit]:
+    async def search(self, query: str, top_k: int | None = None) -> list[SearchHit]:
+        """Search toàn bộ CV, top_k=None, unlimited (skip rerank vì pool lớn)"""
         t0 = time.perf_counter()
 
-        # Tách filter ("5 năm", "Python", role,...) ra khỏi câu hỏi
-        pq = parse_query(query)
+        pq = parse_query(query, self._skill_registry)
+        matched_cv_keys = self._name_registry.match(query) if self._name_registry else []
 
         vectors = await asyncio.to_thread(self._embedder.encode, pq.text)
         query_vector = vectors[0]
 
-        hits, fetch_k, rerank_time = await self._search_common(
-            query_vector=query_vector,
-            rerank_query=pq.text,
-            top_k=top_k,
-            min_years_exp=pq.min_years_exp,
-            required_skills=pq.required_skills,
-            fallback_no_filter=True,
-            keep_pool_after_rerank=True,
-        )
+        rerank_time = 0.0
+        if top_k is None:
+            hits = await self._vector_store.search(
+                query_vector, top_k=UNLIMITED_FETCH_LIMIT,
+                cv_keys=matched_cv_keys or None,
+                min_years_exp=pq.min_years_exp,
+                max_years_exp=pq.max_years_exp,
+                required_skills=pq.required_skills,
+            )
+        else:
+            hits, _, rerank_time = await self._search_common(
+                query_vector=query_vector,
+                rerank_query=pq.text,
+                top_k=top_k,
+                cv_keys=matched_cv_keys or None,
+                min_years_exp=pq.min_years_exp,
+                max_years_exp=pq.max_years_exp,
+                required_skills=pq.required_skills,
+                keep_pool_after_rerank=True,
+            )
 
-        # Ưu tiên role: đoạn nào khớp role thì boost lên đầu (sort ổn định, giữ thứ tự rerank trong cùng nhóm)
-        roles_boosted = 0
-        if pq.required_roles and hits:
-            def _role_match(text: str) -> bool:
-                return any(text_matches_role(text, r) for r in pq.required_roles)
-            hits = sorted(hits, key=lambda h: (not _role_match(h.chunk_text), -h.score))
-            roles_boosted = sum(1 for h in hits if _role_match(h.chunk_text))
+        hits = cap_per_cv(hits, MAX_CHUNKS_PER_CV)
+        if top_k is not None:
+            hits = hits[:top_k]
 
-        hits = hits[:top_k]
-
+        unique_cvs = len({h.cv_key for h in hits})
         elapsed = time.perf_counter() - t0
         logger.info(
-            "Search '%s' | filters=(years>=%s, skills=%s, roles=%s) | candidates=%d top_k=%d | role_boost=%d | %.3fs (rerank=%.3fs)",
-            query[:50], pq.min_years_exp, pq.required_skills, pq.required_roles,
-            fetch_k, len(hits), roles_boosted, elapsed, rerank_time,
+            "Search '%s' | filters=(years>=%s, years<=%s, skills=%s, names=%d) | top_k=%s chunks=%d cvs=%d (cap=%d/cv) | %.3fs (rerank=%.3fs)",
+            query[:50], pq.min_years_exp, pq.max_years_exp, pq.required_skills,
+            len(matched_cv_keys), top_k, len(hits), unique_cvs, MAX_CHUNKS_PER_CV, elapsed, rerank_time,
         )
         return hits
 
-    # Tìm kiếm trong đúng 1 CV (dùng cho chatbot); lọc cv_key bắt buộc, không role boost
     async def search_within_cv(self, query: str, cv_key: str, top_k: int = 5) -> list[SearchHit]:
+        """Search trong đúng 1 CV (dùng cho chatbot)"""
         t0 = time.perf_counter()
 
         vectors = await asyncio.to_thread(self._embedder.encode, query)

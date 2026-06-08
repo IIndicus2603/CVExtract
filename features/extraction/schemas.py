@@ -5,7 +5,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-# Trạng thái của 1 lần extract: thành công hay lỗi
+# Trạng thái của 1 lần extract, thành công hay lỗi
 class CVStatus(str, Enum):
     SUCCESS = "success"
     ERROR = "error"

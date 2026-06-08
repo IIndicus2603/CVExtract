@@ -1,28 +1,23 @@
-# Cắt CV thành nhiều chunk nhỏ theo từng phần để biến thành vector
+# Cắt CV parsed thành các chunk nhỏ theo section, sẵn sàng embed
 
 import logging
 
-from features.retrieval.schemas import Chunk
+from core.config import MAX_SKILLS_SINGLE_CHUNK, SKILLS_PER_CHUNK
+from core.schemas import Chunk
 
 logger = logging.getLogger(__name__)
-
-
-# Danh sách kỹ năng dài quá làm vector bị "loãng", chia nhóm ~10 kỹ năng / chunk
-SKILLS_PER_CHUNK = 10
-MAX_SKILLS_SINGLE_CHUNK = 15
 
 
 class CVChunker:
 
     def chunk(self, cv_key: str, parsed: dict) -> list[Chunk]:
+        """Cắt parsed CV thành nhiều chunks theo section"""
         meta = self._extract_meta(parsed)
-
-        # Thông tin nhận dạng để vector biết "ai làm gì", vd "Nguyễn Văn A (5 năm kinh nghiệm)"
-        ident = self._build_identity(parsed)
+        ident = self._build_identity(parsed)  # "Nguyễn Văn A (5 năm kinh nghiệm)"
 
         chunks: list[Chunk] = []
 
-        # Chunk hồ sơ: gộp tên + công việc hiện tại + top kỹ năng vào 1 chunk dày
+        # Header, gộp tên + role hiện tại + top skills (chunk dày)
         profile_text = self._build_profile(parsed, ident)
         if profile_text:
             chunks.append(Chunk(
@@ -30,6 +25,7 @@ class CVChunker:
                 section_index=0, **meta,
             ))
 
+        # Summary
         summary = (parsed.get("summary") or "").strip()
         if summary:
             text = f"{ident} - tóm tắt: {summary}" if ident else f"Tóm tắt: {summary}"
@@ -38,17 +34,17 @@ class CVChunker:
                 section_index=0, **meta,
             ))
 
+        # Skills (split nếu nhiều)
         skills = [str(s).strip() for s in (parsed.get("skills") or []) if s and str(s).strip()]
         if skills:
             for i, group in enumerate(self._group_skills(skills)):
-                text = (
-                    f"{ident} - kỹ năng: " if ident else "Kỹ năng: "
-                ) + ", ".join(group)
+                text = (f"{ident} - kỹ năng: " if ident else "Kỹ năng: ") + ", ".join(group)
                 chunks.append(Chunk(
                     cv_key=cv_key, section="skills", text=text,
                     section_index=i, **meta,
                 ))
 
+        # Education / work_history
         for i, edu in enumerate(parsed.get("education") or []):
             text = self._format_education(edu, ident)
             if text:
@@ -65,7 +61,7 @@ class CVChunker:
                     section_index=i, **meta,
                 ))
 
-        # Mỗi dự án 1 đoạn vì có mô tả chi tiết, đáng tách riêng
+        # Mỗi project 1 chunk vì có mô tả chi tiết riêng
         for i, proj in enumerate(parsed.get("projects") or []):
             text = self._format_project(proj, ident)
             if text:
@@ -74,7 +70,7 @@ class CVChunker:
                     section_index=i, **meta,
                 ))
 
-        # Giải thưởng và chứng chỉ gộp 1 chunk vì mỗi cái thường ngắn
+        # Awards / certifications, gộp tất cả vào 1 chunk
         awards_text = self._format_awards(parsed.get("awards") or [], ident)
         if awards_text:
             chunks.append(Chunk(
@@ -94,6 +90,7 @@ class CVChunker:
 
     @staticmethod
     def _extract_meta(parsed: dict) -> dict:
+        """Meta gắn vào MỌI chunk cho Qdrant payload filter"""
         return {
             "name": parsed.get("name") or None,
             "years_exp": parsed.get("years_exp"),
@@ -102,6 +99,7 @@ class CVChunker:
 
     @staticmethod
     def _build_identity(parsed: dict) -> str:
+        """'<Name> (<years> năm kinh nghiệm)' - empty nếu thiếu name"""
         name = (parsed.get("name") or "").strip()
         years = parsed.get("years_exp")
         if name and years is not None:
@@ -110,12 +108,13 @@ class CVChunker:
 
     @staticmethod
     def _build_profile(parsed: dict, ident: str) -> str:
+        """Header chunk, identity + role hiện tại + top 5 skills"""
         if not ident:
             return ""
 
         parts = [ident]
 
-        # Công việc hiện tại lấy từ entry đầu tiên (CV thường sắp mới nhất trước)
+        # Role hiện tại lấy entry đầu (CV thường sắp mới nhất trước)
         works = parsed.get("work_history") or []
         if works:
             current = works[0]
@@ -134,6 +133,7 @@ class CVChunker:
 
     @staticmethod
     def _group_skills(skills: list[str]) -> list[list[str]]:
+        """1 chunk nếu ít, split SKILLS_PER_CHUNK/chunk nếu nhiều"""
         if len(skills) <= MAX_SKILLS_SINGLE_CHUNK:
             return [skills]
         return [
@@ -143,6 +143,7 @@ class CVChunker:
 
     @staticmethod
     def _format_education(edu: dict, ident: str) -> str:
+        """Format 1 entry education thành text chunk"""
         parts = [
             (edu.get("degree") or "").strip(),
             (edu.get("school") or "").strip(),
@@ -155,6 +156,7 @@ class CVChunker:
 
     @staticmethod
     def _format_project(proj: dict, ident: str) -> str:
+        """Format 1 entry project thành text chunk"""
         name = (proj.get("name") or "").strip()
         description = (proj.get("description") or "").strip()
         tech = [str(t).strip() for t in (proj.get("tech") or []) if t]
@@ -182,6 +184,7 @@ class CVChunker:
 
     @staticmethod
     def _format_awards(awards: list, ident: str) -> str:
+        """Gộp tất cả awards thành 1 text chunk"""
         items = []
         for a in awards:
             name = (a.get("name") or "").strip()
@@ -202,6 +205,7 @@ class CVChunker:
 
     @staticmethod
     def _format_certifications(certs: list, ident: str) -> str:
+        """Gộp tất cả certifications thành 1 text chunk"""
         items = []
         for c in certs:
             name = (c.get("name") or "").strip()
@@ -222,6 +226,7 @@ class CVChunker:
 
     @staticmethod
     def _format_work(work: dict, ident: str) -> str:
+        """Format 1 entry work_history thành text chunk"""
         role = (work.get("role") or "").strip()
         company = (work.get("company") or "").strip()
         duration = (work.get("duration") or "").strip()

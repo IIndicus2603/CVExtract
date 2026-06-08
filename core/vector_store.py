@@ -1,4 +1,4 @@
-# Qdrant: tạo bảng, thêm/xoá/tìm dữ liệu vector
+# Qdrant, tạo collection, upsert/delete chunks, vector search có filter
 
 import logging
 import uuid
@@ -7,19 +7,20 @@ from typing import Sequence
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as qm
 
-from features.retrieval.schemas import Chunk, SearchHit
+from core.schemas import Chunk, SearchHit
 
 logger = logging.getLogger(__name__)
 
 
 class VectorStore:
     def __init__(self, url: str, collection: str, vector_dim: int):
+        """Init Qdrant async client"""
         self._client = AsyncQdrantClient(url=url)
         self._collection = collection
         self._dim = vector_dim
 
-    # Tạo collection nếu chưa có; gọi nhiều lần ra cùng kết quả, an toàn
     async def ensure_collection(self, *, log_ready: bool = True) -> None:
+        """Tạo collection + payload indexes nếu chưa có"""
         exists = await self._client.collection_exists(self._collection)
         if exists:
             if log_ready:
@@ -28,13 +29,10 @@ class VectorStore:
 
         await self._client.create_collection(
             collection_name=self._collection,
-            vectors_config=qm.VectorParams(
-                size=self._dim,
-                distance=qm.Distance.COSINE,
-            ),
+            vectors_config=qm.VectorParams(size=self._dim, distance=qm.Distance.COSINE),
         )
 
-        # Tạo index cho các trường thường dùng để lọc; không có index thì Qdrant phải quét hết bảng khi lọc
+        # Index các field hay dùng filter, thiếu index thì Qdrant full-scan
         indexes = [
             ("cv_key", qm.PayloadSchemaType.KEYWORD),
             ("section", qm.PayloadSchemaType.KEYWORD),
@@ -53,24 +51,21 @@ class VectorStore:
             self._collection, self._dim, len(indexes),
         )
 
-    # Xoá tất cả đoạn của 1 CV (dùng khi upload lại CV đó)
     async def delete_by_cv_key(self, cv_key: str) -> None:
+        """Xoá toàn bộ chunks của 1 CV (dùng khi re-index hoặc delete CV)"""
         await self.ensure_collection(log_ready=False)
         await self._client.delete(
             collection_name=self._collection,
             points_selector=qm.FilterSelector(
                 filter=qm.Filter(
-                    must=[qm.FieldCondition(
-                        key="cv_key",
-                        match=qm.MatchValue(value=cv_key),
-                    )]
+                    must=[qm.FieldCondition(key="cv_key", match=qm.MatchValue(value=cv_key))]
                 )
             ),
         )
         logger.debug("Deleted Qdrant chunks for cv_key=%s", cv_key)
 
-    # Thêm hoặc cập nhật nhiều đoạn cùng lúc, mỗi đoạn là 1 dòng dữ liệu
     async def upsert_chunks(self, chunks: Sequence[Chunk], vectors: Sequence[list[float]]) -> None:
+        """Thêm/cập nhật nhiều chunks, cần len(chunks)==len(vectors)"""
         if len(chunks) != len(vectors):
             raise ValueError(
                 f"chunks ({len(chunks)}) and vectors ({len(vectors)}) length mismatch"
@@ -100,26 +95,34 @@ class VectorStore:
         await self._client.upsert(collection_name=self._collection, points=points)
         logger.debug("Upserted %d chunks to Qdrant", len(points))
 
-    # Tìm top_k đoạn giống nhất với câu hỏi, có thể lọc thêm theo số năm kinh nghiệm hoặc kỹ năng
-    # cv_key: nếu truyền vào thì chỉ tìm trong đúng 1 CV (dùng cho chat)
-    async def search(self, query_vector: list[float], top_k: int = 5, min_years_exp: int | None = None, required_skills: list[str] | None = None, *, cv_key: str | None = None) -> list[SearchHit]:
+    async def search(
+        self,
+        query_vector: list[float],
+        top_k: int = 5,
+        *,
+        cv_key: str | None = None,
+        cv_keys: list[str] | None = None,
+        min_years_exp: int | None = None,
+        max_years_exp: int | None = None,
+        required_skills: list[str] | None = None,
+    ) -> list[SearchHit]:
+        """Top-K chunks, cv_key (1 CV) ưu tiên cv_keys (nhiều CV)"""
         must: list[qm.FieldCondition] = []
+
         if cv_key is not None:
-            must.append(qm.FieldCondition(
-                key="cv_key",
-                match=qm.MatchValue(value=cv_key),
-            ))
-        if min_years_exp is not None:
+            must.append(qm.FieldCondition(key="cv_key", match=qm.MatchValue(value=cv_key)))
+        elif cv_keys:
+            must.append(qm.FieldCondition(key="cv_key", match=qm.MatchAny(any=cv_keys)))
+
+        if min_years_exp is not None or max_years_exp is not None:
             must.append(qm.FieldCondition(
                 key="years_exp",
-                range=qm.Range(gte=min_years_exp),
+                range=qm.Range(gte=min_years_exp, lte=max_years_exp),
             ))
+
+        # Mảng skills, MatchValue = "mảng chứa giá trị này", mỗi skill là 1 AND condition
         for skill in (required_skills or []):
-            # Khi field là mảng, MatchValue có nghĩa là "mảng có chứa giá trị này"
-            must.append(qm.FieldCondition(
-                key="skills",
-                match=qm.MatchValue(value=skill),
-            ))
+            must.append(qm.FieldCondition(key="skills", match=qm.MatchValue(value=skill)))
 
         query_filter = qm.Filter(must=must) if must else None
 
@@ -142,4 +145,5 @@ class VectorStore:
         ]
 
     async def close(self) -> None:
+        """Đóng connection (gọi khi shutdown)"""
         await self._client.close()

@@ -1,4 +1,4 @@
-# Extract text từ file PDF dùng thư viện pdfplumber
+# Extract text từ file PDF dùng pdfplumber
 
 import pdfplumber
 from features.extraction.extractors.base import BaseExtractor
@@ -6,7 +6,7 @@ from features.extraction.extractors.base import BaseExtractor
 
 class PdfExtractor(BaseExtractor):
     def extract(self, file_path: str) -> str:
-        # Mở file PDF, đọc từng trang rồi nối lại bằng dấu xuống dòng
+        """Mở PDF, đọc từng trang rồi nối lại bằng newline"""
         parts = []
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages:
@@ -16,16 +16,15 @@ class PdfExtractor(BaseExtractor):
         return "\n".join(parts).strip()
 
     def _extract_page(self, page) -> str:
-        # Tìm xem trang này có bảng không, nếu không có thì extract bình thường
+        """Extract 1 page, nếu có bảng tách thành blocks sort theo y position"""
         tables = page.find_tables()
         if not tables:
             return page.extract_text() or ""
 
-        # Có bảng: tách thành nhiều "block", mỗi block kèm vị trí y (để sort sau)
-        # block = (y, text)
+        # block = (y, text), sort cuối cùng theo y để giữ thứ tự đọc tự nhiên
         blocks: list[tuple[float, str]] = []
 
-        # Lấy text ngoài bảng rồi và bỏ bảng ra khỏi trang để tránh đọc trùng
+        # Text ngoài bảng (loại bbox của bảng để tránh trùng)
         outside = page
         for t in tables:
             outside = outside.outside_bbox(t.bbox, relative=False, strict=False)
@@ -34,7 +33,7 @@ class PdfExtractor(BaseExtractor):
             if text:
                 blocks.append((line["top"], text))
 
-        # Lấy text trong bảng
+        # Text trong bảng
         for t in tables:
             cell_lines = []
             for row in t.extract():
@@ -45,6 +44,5 @@ class PdfExtractor(BaseExtractor):
                 top_y = t.bbox[1]
                 blocks.append((top_y, "\n".join(cell_lines)))
 
-        # Sort theo thứ tự bản gốc
         blocks.sort(key=lambda b: b[0])
         return "\n".join(text for _, text in blocks)

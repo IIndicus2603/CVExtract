@@ -1,13 +1,13 @@
 # Prompt template gửi cho LLM để extract thông tin từ CV
 # Yêu cầu LLM trả về JSON đúng cấu trúc, không kèm text thừa
 
-# System prompt: thiết lập "vai trò" cho LLM
+# System prompt, thiết lập "vai trò" cho LLM
 SYSTEM_PROMPT = (
     "Bạn là chuyên gia phân tích CV. "
     "Luôn trả về JSON hợp lệ, không có text thừa."
 )
 
-# User prompt: chứa nội dung document và yêu cầu output structure
+# User prompt, chứa nội dung document và yêu cầu output structure
 CV_EXTRACT_TEMPLATE = """\
 Bạn là chuyên gia phân tích CV. Hãy đánh giá document và extract thông tin, trả về JSON với cấu trúc chính xác như sau, không thêm bất kỳ text nào khác:
 {{

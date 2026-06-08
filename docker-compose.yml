@@ -28,8 +28,31 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  # 9Router là TÙY CHỌN: chỉ build + chạy khi bật profile `router9`.
+  # docker compose --profile router9 up -d --build
+  router9:
+    profiles: ["router9"]
+    build:
+      context: .
+      target: router9
+    container_name: cvextract-9router
+    restart: unless-stopped
+    ports:
+      - "20128:20128"           # dashboard UI từ host
+    volumes:
+      - router9_data:/data      # persist API keys + combos + provider creds
+    healthcheck:
+      # node:20-slim không có wget/curl, dùng http module built-in của node
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:20128/v1/models',r=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   app:
-    build: .
+    build:
+      context: .
+      target: app
     container_name: cvextract-app
     restart: unless-stopped
     depends_on:
@@ -42,11 +65,16 @@ services:
     environment:
       DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:-password}@mysql:3306/${MYSQL_DATABASE:-cvextract}
       QDRANT_URL: http://qdrant:6333
+      # Override được qua .env. Khi bật profile router9 trong cùng compose: dùng tên service `router9`.
+      # Khi chạy 9router ngoài compose: trỏ tới host, vd http://host.docker.internal:20128/v1
+      ROUTER9_BASE_URL: ${ROUTER9_BASE_URL:-http://router9:20128/v1}
+      CV_RAW_TEXT_DIR: ./tests/extraction/raw_txt
     ports:
       - "8000:8000"
     volumes:
       - hf_cache:/root/.cache/huggingface
       - ./logs:/app/logs
+      - ./tests/extraction/raw_txt:/app/tests/extraction/raw_txt
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/docs"]
       interval: 30s
@@ -57,4 +85,5 @@ services:
 volumes:
   mysql_data:
   qdrant_storage:
+  router9_data:
   hf_cache:

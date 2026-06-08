@@ -1,26 +1,29 @@
-# Định nghĩa cấu trúc các bảng trong MySQL bằng SQLAlchemy ORM
+# SQLAlchemy ORM models cho MySQL
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, JSON, String, Text, text
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database import Base
 
 
-# Bảng lưu CV:
+# Ép MySQL trả UTC, đồng bộ với Python datetime.now
+_UTC_NOW = text("UTC_TIMESTAMP()")
+
+
 class CVData(Base):
+    """1 CV (extracted + parsed), key = filename lowercase, no extension"""
     __tablename__ = "cv_data"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    # "key" dùng làm unique identifier (= tên file viết thường, không có đuôi)
     key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     file_name: Mapped[str] = mapped_column(String(255))
     extension: Mapped[str] = mapped_column(String(10))
     status: Mapped[str] = mapped_column(String(20))
 
-    # Các cột thông tin trích xuất từ JSON LLM
+    # Structured fields extract từ LLM JSON
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -33,27 +36,24 @@ class CVData(Base):
     certifications: Mapped[list | None] = mapped_column(JSON, nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # JSON gốc do LLM trả về
-    raw_json: Mapped[str] = mapped_column(LONGTEXT)
     error_message: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=_UTC_NOW)
 
 
-# Bảng phiên chat; session_id = UUID4, cleanup task xoá theo last_activity_at + TTL
 class ChatSessionDB(Base):
+    """1 phiên chat gắn với 1 CV, cleanup task xoá theo last_activity_at + TTL"""
     __tablename__ = "chat_sessions"
 
     session_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     cv_key: Mapped[str] = mapped_column(String(255), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=_UTC_NOW)
     last_activity_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now(),
+        DateTime, server_default=_UTC_NOW, onupdate=_UTC_NOW,
     )
 
 
-# Bảng message trong phiên chat; CASCADE xoá theo session
-# sources_json: JSON string của list[SearchHit], NULL khi role=user hoặc refusal
 class ChatMessageDB(Base):
+    """Message trong phiên chat, sources_json NULL khi role=user hoặc refusal"""
     __tablename__ = "chat_messages"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -63,4 +63,4 @@ class ChatMessageDB(Base):
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(LONGTEXT)
     sources_json: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=_UTC_NOW)
