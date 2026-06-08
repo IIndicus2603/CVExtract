@@ -21,6 +21,7 @@ from core.config import (
 from core.embeddings.embedder import Embedder
 from core.embeddings.reranker import Reranker
 from core.llm.client import build_llm_client
+from core.llm.prompt_guard import wrap_untrusted
 from core.registries import SkillRegistry
 from core.retrieval_utils import cap_per_cv
 from core.schemas import SearchHit, to_int_or_none
@@ -69,9 +70,9 @@ class MatchingService:
         """Pipeline match JD với top-K CV (xem docstring module)"""
         t_total = time.perf_counter()
 
-        # 1. Parse JD bằng LLM
+        # 1. Parse JD bằng LLM, bọc jd_text bằng marker không tin cậy chống injection
         parsed_dict, usage = await self._llm.extract_json(
-            JD_SYSTEM_PROMPT, JD_EXTRACT_TEMPLATE.format(jd_text=jd_text),
+            JD_SYSTEM_PROMPT, JD_EXTRACT_TEMPLATE.format(jd_text=wrap_untrusted(jd_text)),
         )
         if parsed_dict:
             parsed_jd = ParsedJD(

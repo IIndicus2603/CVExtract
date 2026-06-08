@@ -1,13 +1,15 @@
 # Answer, dùng context (CV chunks) trả lời câu hỏi
 
+from core.llm.prompt_guard import wrap_untrusted
 from core.schemas import SearchHit
 from features.chat.llm.prompts import ANSWER_SYSTEM, ANSWER_USER_TEMPLATE
 
 
 def build_answer_messages(context: str, question: str) -> tuple[str, str]:
     """Trả (system, user) prompts để gọi BaseProvider.chat/stream"""
+    # Context là nội dung CV có thể chứa injection nên bọc bằng marker không tin cậy
     return ANSWER_SYSTEM, ANSWER_USER_TEMPLATE.format(
-        context=context, question=question,
+        context=wrap_untrusted(context), question=question,
     )
 
 

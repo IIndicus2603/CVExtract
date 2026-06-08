@@ -1,5 +1,7 @@
 # 2 cặp (system, user) prompt: 1 để rewrite câu hỏi, 1 để trả lời từ CV
 
+from core.llm.prompt_guard import INJECTION_GUARD
+
 
 CONDENSE_SYSTEM = """Cho lịch sử hội thoại và câu hỏi mới của user, viết lại câu hỏi thành câu standalone có đầy đủ context, không cần lịch sử cũng hiểu được.
 
@@ -11,7 +13,9 @@ Quy tắc:
   + "anh ấy", "cô ấy", "ứng viên này" -> tên cụ thể từ lịch sử
   + "công ty đó", "dự án đó" -> tên cụ thể nếu có context
   + "còn gì nữa?", "thêm gì khác?" -> mở rộng thành câu hỏi đầy đủ về chủ đề đang nói
-- Output CHỈ là câu standalone, không thêm giải thích, không thêm prefix."""
+- Output CHỈ là câu standalone, không thêm giải thích, không thêm prefix.
+
+""" + INJECTION_GUARD
 
 
 CONDENSE_USER_TEMPLATE = """Lịch sử hội thoại:
@@ -29,7 +33,9 @@ Quy tắc bắt buộc:
 2. Nếu CV không chứa thông tin để trả lời, nói chính xác: "Tôi không tìm thấy thông tin này trong CV."
 3. Trả lời ngắn gọn, tập trung ý hỏi. Không lặp nguyên văn CV trừ khi user yêu cầu chi tiết.
 4. Cùng ngôn ngữ với câu hỏi (Vietnamese hỏi -> Vietnamese trả lời).
-5. KHÔNG đoán mò, KHÔNG suy luận xa khỏi nội dung CV."""
+5. KHÔNG đoán mò, KHÔNG suy luận xa khỏi nội dung CV.
+
+""" + INJECTION_GUARD
 
 
 ANSWER_USER_TEMPLATE = """Nội dung CV liên quan:
