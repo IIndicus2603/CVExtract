@@ -1,30 +1,26 @@
-# Cấu hình logging cho toàn ứng dụng: chỉ ghi vào file, không in console
-# File log được rotate khi đạt 10MB, giữ tối đa 7 file backup
+# Logging config, chỉ ghi file (không console), rotate 10MB, giữ 7 backup
 
 import logging
 import logging.config
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
-# Tên file log gắn theo ngày để dễ tra cứu
-LOG_DATE = datetime.now().strftime("%Y-%m-%d")
+# UTC date đồng bộ với DB (UTC_TIMESTAMP) và chat schemas
+LOG_DATE = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-# Drop các log liên quan tới /ws
 class _DropWebSocketNoise(logging.Filter):
+    """Bỏ log liên quan WS (project không dùng nhưng uvicorn vẫn ghi noise)"""
     PATTERNS = (
-        "/ws",                          # Bắt cả "/ws " và "/ws\""
-        "WebSocket",                    # Bắt "WebSocket /ws" trong access log
-        "Unsupported upgrade request",  # Warning ws=none
-        "WebSocket library",            # Warning thiếu lib
-        "connection rejected",          # "connection rejected (403 Forbidden)"
-        "connection closed",            # "connection closed" sau khi WS bị reject
+        "/ws", "WebSocket", "Unsupported upgrade request",
+        "WebSocket library", "connection rejected", "connection closed",
     )
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Trả False để drop record nếu message chứa pattern WS"""
         msg = record.getMessage()
         return not any(p in msg for p in self.PATTERNS)
 
@@ -62,7 +58,7 @@ LOGGING_CONFIG = {
         },
     },
     "loggers": {
-        # Suppress log dài dòng từ thư viện bên ngoài
+        # Suppress thư viện bên ngoài quá verbose
         "httpx":      {"level": "WARNING"},
         "pdfplumber": {"level": "WARNING"},
         "asyncio":    {"level": "CRITICAL"},
@@ -76,6 +72,6 @@ LOGGING_CONFIG = {
 }
 
 
-# Gọi 1 lần khi app khởi động
 def setup_logging():
+    """Gọi 1 lần khi app khởi động để apply LOGGING_CONFIG"""
     logging.config.dictConfig(LOGGING_CONFIG)

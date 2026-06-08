@@ -4,278 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CV Extractor</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg:         #0f1117;
-      --surface:    #1a1d27;
-      --surface2:   #22263a;
-      --border:     #2e3350;
-      --accent:     #5b7cf6;
-      --accent-dim: #3d55c4;
-      --success:    #34c77b;
-      --error:      #f05252;
-      --warn:       #f0a832;
-      --text:       #e2e4f0;
-      --muted:      #7b80a0;
-      --radius:     10px;
-    }
-
-    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-
-    /* Header */
-    header {
-      background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 16px 32px; display: flex; align-items: center; gap: 12px;
-    }
-    .logo { font-size: 22px; font-weight: 700; color: var(--accent); }
-    .sub  { font-size: 13px; color: var(--muted); }
-
-    /* Layout */
-    .container { max-width: 900px; margin: 0 auto; padding: 32px 20px; }
-
-    /* Tabs */
-    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 28px; }
-    .tab {
-      padding: 10px 20px; cursor: pointer; font-size: 14px; color: var(--muted);
-      border: 1px solid transparent; border-bottom: none; border-radius: var(--radius) var(--radius) 0 0;
-      background: transparent; transition: all .15s;
-    }
-    .tab:hover  { color: var(--text); background: var(--surface2); }
-    .tab.active { color: var(--accent); background: var(--surface); border-color: var(--border); border-bottom-color: var(--surface); }
-    .panel { display: none; }
-    .panel.active { display: block; }
-
-    /* Card */
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; margin-bottom: 20px; }
-    .card-title { font-size: 15px; font-weight: 600; margin-bottom: 18px; color: var(--text); }
-
-    /* Form */
-    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-    input[type="text"], input[type="file"] {
-      width: 100%; padding: 10px 14px; background: var(--surface2);
-      border: 1px solid var(--border); border-radius: 8px; color: var(--text);
-      font-size: 14px; outline: none; transition: border-color .15s;
-    }
-    input[type="text"]:focus, input[type="file"]:focus { border-color: var(--accent); }
-    input[type="file"] { padding: 8px 14px; cursor: pointer; }
-    input[type="file"]::file-selector-button {
-      background: var(--accent); color: #fff; border: none;
-      padding: 6px 14px; border-radius: 6px; cursor: pointer; margin-right: 12px; font-size: 13px;
-    }
-    .input-row { display: flex; gap: 10px; }
-    .input-row input { flex: 1; }
-
-    /* Drop zone */
-    .drop-zone {
-      border: 2px dashed var(--border); border-radius: var(--radius);
-      padding: 40px 24px; text-align: center; cursor: pointer; margin-bottom: 16px;
-      transition: border-color .15s, background .15s;
-    }
-    .drop-zone:hover, .drop-zone.drag-over { border-color: var(--accent); background: rgba(91,124,246,.07); }
-    .drop-zone .dz-icon { font-size: 36px; margin-bottom: 10px; }
-    .drop-zone p { font-size: 14px; color: var(--muted); }
-    .drop-zone p strong { color: var(--text); }
-    .drop-zone .dz-filename { margin-top: 10px; font-size: 13px; color: var(--accent); }
-
-    /* Buttons */
-    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all .15s; }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-primary:hover { background: var(--accent-dim); }
-    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
-    .btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
-
-    /* Alert */
-    .alert { padding: 12px 16px; border-radius: 8px; font-size: 13px; margin-top: 16px; display: none; }
-    .alert.show    { display: block; }
-    .alert.success { background: rgba(52,199,123,.12); border: 1px solid rgba(52,199,123,.3); color: var(--success); }
-    .alert.error   { background: rgba(240,82,82,.12);  border: 1px solid rgba(240,82,82,.3);  color: var(--error); }
-    .alert.warn    { background: rgba(240,168,50,.12); border: 1px solid rgba(240,168,50,.3); color: var(--warn); }
-
-    /* Spinner */
-    .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; display: none; }
-    .spinner.show { display: inline-block; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    /* Badge */
-    .badge { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-    .badge.success { background: rgba(52,199,123,.2); color: var(--success); }
-    .badge.error   { background: rgba(240,82,82,.2);  color: var(--error); }
-
-    /* Result card */
-    .result-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-top: 16px; display: none; }
-    .result-card.show { display: block; }
-    .result-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
-    .result-card-header strong { font-size: 14px; color: var(--text); flex: 1; }
-
-    /* Parsed CV */
-    .cv-grid  { display: grid; gap: 12px; }
-    .cv-field { display: grid; grid-template-columns: 120px 1fr; gap: 8px; font-size: 13px; align-items: start; }
-    .cv-label { color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; padding-top: 2px; }
-    .cv-value { color: var(--text); }
-
-    .skill-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-    .skill-tag  { background: rgba(91,124,246,.15); border: 1px solid rgba(91,124,246,.3); color: var(--accent); padding: 2px 10px; border-radius: 20px; font-size: 12px; }
-
-    .work-list { display: grid; gap: 8px; margin-top: 2px; }
-    .work-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
-    .work-role { font-weight: 600; font-size: 13px; color: var(--text); }
-    .work-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
-
-    .raw-text {
-      font-size: 13px; color: var(--muted); white-space: pre-wrap; word-break: break-word;
-      max-height: 300px; overflow-y: auto; background: var(--bg);
-      padding: 14px; border-radius: 8px; border: 1px solid var(--border); line-height: 1.6;
-      font-family: 'Consolas', monospace;
-    }
-
-    /* Batch */
-    .batch-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface2); border-radius: 8px; margin-bottom: 8px; font-size: 13px; }
-    .batch-item .name { flex: 1; color: var(--text); }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .status-dot.success { background: var(--success); }
-    .status-dot.error   { background: var(--error); }
-
-    /* Storage */
-    .storage-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-    .toolbar-actions { display: flex; gap: 8px; align-items: center; }
-    .count-badge { background: var(--surface2); border: 1px solid var(--border); padding: 4px 12px; border-radius: 20px; font-size: 12px; color: var(--muted); }
-    .empty-state { text-align: center; padding: 48px; color: var(--muted); font-size: 14px; }
-    .ext-badge { background: var(--surface2); border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: monospace; color: var(--accent); }
-
-    .storage-grid { display: grid; gap: 12px; }
-    .cv-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-    .cv-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
-    .cv-card-filename { flex: 1; font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .cv-card-body { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .cv-info { font-size: 12px; }
-    .cv-info-label { color: var(--muted); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
-    .cv-info-value { color: var(--text); }
-    .cv-info-wide { grid-column: 1 / -1; }
-
-    /* Semantic search results */
-    .semantic-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 18px; margin-bottom: 12px;
-    }
-    .semantic-card-header {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
-      padding-bottom: 10px; border-bottom: 1px solid var(--border);
-    }
-    .semantic-card-name { font-weight: 600; font-size: 14px; flex: 1; color: var(--text); }
-    .semantic-score {
-      background: rgba(91,124,246,.15); border: 1px solid rgba(91,124,246,.3);
-      color: var(--accent); padding: 2px 10px; border-radius: 20px; font-size: 12px;
-      font-family: monospace;
-    }
-    .semantic-meta {
-      font-size: 12px; color: var(--muted); margin-bottom: 10px;
-    }
-    .matched-chunk {
-      background: var(--surface2); border-left: 3px solid var(--accent);
-      padding: 8px 12px; margin: 6px 0; border-radius: 4px; font-size: 12px;
-    }
-    .matched-chunk-meta {
-      display: flex; justify-content: space-between; align-items: center;
-      margin-bottom: 4px; color: var(--muted); font-size: 11px;
-    }
-    .matched-chunk-section { text-transform: uppercase; font-weight: 600; letter-spacing: .5px; }
-    .matched-chunk-text { color: var(--text); line-height: 1.5; }
-
-    /* Chat tab — 2-column: CV list sidebar + chat pane */
-    .chat-wrap {
-      display: flex; gap: 16px; height: 640px;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); overflow: hidden;
-    }
-    .chat-sidebar {
-      width: 240px; flex-shrink: 0; border-right: 1px solid var(--border);
-      display: flex; flex-direction: column; background: var(--bg);
-    }
-    .chat-sidebar-header {
-      padding: 12px 14px; border-bottom: 1px solid var(--border);
-      font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    .chat-cv-list { flex: 1; overflow-y: auto; }
-    .chat-cv-item {
-      padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border);
-      font-size: 13px; transition: background .15s;
-    }
-    .chat-cv-item:hover { background: var(--surface2); }
-    .chat-cv-item.active { background: rgba(91,124,246,.15); border-left: 3px solid var(--accent); padding-left: 11px; }
-    .chat-cv-item-name { color: var(--text); font-weight: 500; }
-    .chat-cv-item-key { color: var(--muted); font-size: 11px; margin-top: 2px; word-break: break-all; }
-
-    .chat-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-    .chat-pane-header {
-      padding: 12px 16px; border-bottom: 1px solid var(--border);
-      font-size: 13px; color: var(--muted); flex-shrink: 0;
-    }
-    .chat-pane-header strong { color: var(--accent); }
-    .chat-messages {
-      flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px;
-    }
-    .chat-empty {
-      text-align: center; color: var(--muted); margin-top: 80px; padding: 0 24px;
-      font-size: 13px; line-height: 1.6;
-    }
-    .chat-msg {
-      max-width: 80%; padding: 10px 14px; border-radius: 12px; font-size: 14px;
-      line-height: 1.5; word-wrap: break-word; white-space: pre-wrap;
-    }
-    .chat-msg.user      { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
-    .chat-msg.assistant { align-self: flex-start; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-
-    .chat-sources {
-      align-self: flex-start; max-width: 80%; margin-top: -4px;
-      font-size: 12px; color: var(--muted);
-    }
-    .chat-sources summary {
-      cursor: pointer; padding: 4px 8px; border-radius: 6px;
-      background: rgba(91,124,246,.08); color: var(--accent);
-      display: inline-block; user-select: none;
-    }
-    .chat-sources summary:hover { background: rgba(91,124,246,.15); }
-    .chat-sources-list { margin-top: 6px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
-    .chat-source-item { padding: 6px 0; border-top: 1px solid var(--border); }
-    .chat-source-item:first-child { border-top: none; padding-top: 0; }
-    .chat-source-meta {
-      display: flex; justify-content: space-between; font-size: 10px;
-      color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px;
-    }
-    .chat-source-text { color: var(--text); font-size: 12px; line-height: 1.4; }
-
-    .chat-typing { display: flex; gap: 4px; padding: 12px 14px; align-self: flex-start; }
-    .chat-typing span {
-      width: 6px; height: 6px; border-radius: 50%; background: var(--muted);
-      animation: chat-dot 1.2s infinite ease-in-out;
-    }
-    .chat-typing span:nth-child(2) { animation-delay: .2s; }
-    .chat-typing span:nth-child(3) { animation-delay: .4s; }
-    @keyframes chat-dot {
-      0%, 60%, 100% { opacity: .3; transform: scale(.8); }
-      30% { opacity: 1; transform: scale(1); }
-    }
-
-    .chat-input-bar {
-      padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px;
-      background: var(--surface);
-    }
-    .chat-input-bar textarea {
-      flex: 1; min-height: 40px; max-height: 120px; resize: none;
-      padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border);
-      border-radius: 8px; color: var(--text); font-size: 14px; font-family: inherit;
-      outline: none; transition: border-color .15s;
-    }
-    .chat-input-bar textarea:focus { border-color: var(--accent); }
-    .chat-input-bar textarea:disabled { opacity: .5; cursor: not-allowed; }
-    .chat-input-bar button {
-      padding: 0 18px; align-self: stretch;
-    }
-  </style>
+  <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
 
@@ -289,11 +18,10 @@
 <div class="container">
 
   <div class="tabs">
-    <button class="tab active" data-tab="upload"  onclick="switchTab('upload')">Upload CV</button>
+    <button class="tab active" data-tab="upload"  onclick="switchTab('upload')">Upload file</button>
     <button class="tab"        data-tab="batch"   onclick="switchTab('batch')">Upload Folder</button>
-    <button class="tab"        data-tab="storage" onclick="switchTab('storage')">Storage</button>
-    <button class="tab"        data-tab="semantic" onclick="switchTab('semantic')">Semantic Search</button>
-    <button class="tab"        data-tab="chat"     onclick="switchTab('chat')">💬 Chat</button>
+    <button class="tab"        data-tab="storage" onclick="switchTab('storage')">Hồ sơ</button>
+    <button class="tab"        data-tab="jd-match" onclick="switchTab('jd-match')">🎯 JD Match</button>
   </div>
 
   <!-- Upload single CV -->
@@ -322,14 +50,18 @@
     </div>
   </div>
 
-  <!-- Upload folder -->
+  <!-- Upload folder (browser-side folder picker, không cần server path) -->
   <div id="panel-batch" class="panel">
     <div class="card">
       <h2 class="card-title">Upload nhiều CV từ thư mục</h2>
-      <label>Đường dẫn thư mục (trên server)</label>
-      <input type="text" id="folder-path-input" placeholder="VD: C:\Users\CVs" style="margin-bottom:16px"
-             oninput="document.getElementById('batch-btn').disabled = !this.value.trim()"
-             onkeydown="if(event.key==='Enter') uploadBatch()" />
+      <div class="drop-zone" id="batch-drop-zone" onclick="document.getElementById('batch-folder-input').click()">
+        <div class="dz-icon">📁</div>
+        <p><strong>Chọn 1 thư mục</strong> trên máy bạn</p>
+        <p style="margin-top:6px">Trình duyệt sẽ tự liệt kê file; chỉ .pdf, .docx được xử lý.</p>
+        <div class="dz-filename" id="batch-folder-filename"></div>
+      </div>
+      <input type="file" id="batch-folder-input" webkitdirectory directory multiple
+             style="display:none" onchange="onBatchFolderSelected(this)" />
       <button class="btn btn-primary" id="batch-btn" onclick="uploadBatch()" disabled>
         <span class="spinner" id="batch-spinner"></span>Bắt đầu upload
       </button>
@@ -338,701 +70,130 @@
     <div id="batch-results"></div>
   </div>
 
-  <!-- Semantic Search -->
-  <div id="panel-semantic" class="panel">
-    <div class="card">
-      <h2 class="card-title">Tìm kiếm ngữ nghĩa</h2>
-      <label>Câu truy vấn (ví dụ: "kỹ sư Python có kinh nghiệm FastAPI")</label>
-      <div class="input-row">
-        <input type="text" id="semantic-input" placeholder="Mô tả ứng viên bạn cần..."
-               onkeydown="if(event.key==='Enter') searchSemantic()" />
-        <button class="btn btn-primary" onclick="searchSemantic()">
-          <span class="spinner" id="semantic-spinner"></span>Tìm
-        </button>
-      </div>
-      <div class="alert" id="semantic-alert"></div>
-    </div>
-
-    <div id="semantic-results"></div>
-  </div>
-
-  <!-- Storage -->
+  <!-- Storage (gộp với Semantic Search) -->
   <div id="panel-storage" class="panel">
     <div class="card">
       <div class="storage-toolbar">
         <h2 class="card-title" style="margin-bottom:0">Tất cả CV đã lưu</h2>
         <div class="toolbar-actions">
           <span class="count-badge" id="storage-count">0 CV</span>
-          <button class="btn btn-ghost" onclick="loadStorage()">Làm mới</button>
+          <button class="btn btn-ghost" onclick="reloadCurrentView()">Làm mới</button>
         </div>
       </div>
-      <div id="storage-content">
+      <div class="input-row" style="margin-top:8px">
+        <input type="text" id="storage-search-input"
+               placeholder='Tìm kiếm ngữ nghĩa (vd: "kỹ sư Python", "Nguyễn Văn A")...'
+               onkeydown="if(event.key==='Enter') runSearchOrReset()" />
+        <button class="btn btn-primary" onclick="runSearchOrReset()">
+          <span class="spinner" id="storage-spinner"></span>Tìm
+        </button>
+      </div>
+      <div class="alert" id="storage-alert"></div>
+      <div id="storage-content" style="margin-top:16px">
         <div class="empty-state">Đang tải...</div>
       </div>
     </div>
   </div>
 
-  <!-- Chat -->
-  <div id="panel-chat" class="panel">
-    <div class="chat-wrap">
-      <aside class="chat-sidebar">
-        <div class="chat-sidebar-header">
-          <span>CV đã lưu</span>
-          <button class="btn btn-ghost" style="padding: 2px 8px; font-size: 11px;" onclick="loadCVListForChat()">↻</button>
-        </div>
-        <div class="chat-cv-list" id="chat-cv-list">
-          <div class="empty-state" style="padding: 20px 14px; font-size: 12px;">Đang tải...</div>
-        </div>
-      </aside>
-      <section class="chat-pane">
-        <div class="chat-pane-header" id="chat-pane-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-          <span id="chat-pane-header-text">Chọn 1 CV ở sidebar để bắt đầu chat</span>
-          <button id="chat-new-session-btn" class="btn btn-ghost"
-                  style="padding:4px 10px;font-size:11px;display:none"
-                  onclick="resetChatSession()">↻ Bắt đầu lại</button>
-        </div>
-        <div class="chat-messages" id="chat-messages">
-          <div class="chat-empty">
-            Chọn 1 CV từ sidebar bên trái.<br>
-            Hỏi về kinh nghiệm, kỹ năng, học vấn, hoặc dự án của ứng viên.
-          </div>
-        </div>
-        <div class="chat-input-bar">
-          <textarea id="chat-input" placeholder="Chọn 1 CV trước..."
-                    disabled rows="1"
-                    onkeydown="onChatInputKey(event)"></textarea>
-          <button class="btn btn-primary" id="chat-send-btn" disabled onclick="sendChatMessage()">Gửi</button>
-        </div>
-      </section>
+  <!-- JD Match: paste/upload JD ra top-K CV phù hợp -->
+  <div id="panel-jd-match" class="panel">
+    <div class="card">
+      <h2 class="card-title">🎯 Match JD ↔ CV</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+        Paste nội dung JD hoặc upload PDF/DOCX. Hệ thống sẽ extract yêu cầu, embed, và xếp hạng các CV trong kho.
+      </p>
+
+      <label style="font-size:12px;color:var(--muted)">Nội dung JD (paste)</label>
+      <textarea id="jd-text" rows="8" placeholder="VD: Tuyển Backend Engineer 3+ năm kinh nghiệm Python, FastAPI, PostgreSQL. Đã làm việc với Docker, Kafka..."
+                style="width:100%;margin-top:4px;margin-bottom:12px;padding:10px;font-family:inherit;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);resize:vertical"></textarea>
+
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">Hoặc upload file JD:</div>
+      <div class="drop-zone" id="jd-drop-zone" onclick="document.getElementById('jd-file-input').click()">
+        <div class="dz-icon">📄</div>
+        <p><strong>Kéo thả JD vào đây</strong> hoặc nhấn để chọn (.pdf, .docx)</p>
+        <div class="dz-filename" id="jd-dz-filename"></div>
+      </div>
+      <input type="file" id="jd-file-input" accept=".pdf,.docx" style="display:none" onchange="onJDFileSelected(this)" />
+
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:14px">
+        <label style="font-size:13px;display:flex;align-items:center;gap:6px">
+          Top K: <input type="number" id="jd-top-k" value="5" min="1" max="20"
+                       style="width:60px;padding:4px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)" />
+        </label>
+        <label style="font-size:13px;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="jd-strict-years" checked /> Lọc cứng số năm KN
+        </label>
+        <label style="font-size:13px;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="jd-strict-skills" /> Lọc cứng skills
+        </label>
+      </div>
+
+      <button class="btn btn-primary" id="jd-match-btn" onclick="runJDMatch()" style="margin-top:14px">
+        <span class="spinner" id="jd-match-spinner"></span>Tìm CV phù hợp
+      </button>
+      <div class="alert" id="jd-match-alert"></div>
     </div>
+
+    <div id="jd-match-results" style="margin-top:16px"></div>
   </div>
 
 </div>
 
-<script>
-  const API = '';
-
-  function esc(s) {
-    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  function showAlert(id, msg, type) {
-    const el = document.getElementById(id);
-    el.textContent = msg;
-    el.className = `alert ${type} show`;
-  }
-  function hideAlert(id) { document.getElementById(id).className = 'alert'; }
-
-  function renderParsedCV(text) {
-    if (!text) return `<div class="raw-text">(Không có nội dung)</div>`;
-    let cv;
-    try { cv = JSON.parse(text); } catch { return `<div class="raw-text">${esc(text)}</div>`; }
-
-    const skillsHtml = (cv.skills || []).length
-      ? `<div class="skill-list">${cv.skills.map(s => `<span class="skill-tag">${esc(s)}</span>`).join('')}</div>`
-      : '<span style="color:var(--muted)">—</span>';
-
-    const workHtml = (cv.work_history || []).length
-      ? `<div class="work-list">${cv.work_history.map(w => `
-          <div class="work-item">
-            <div class="work-role">${esc(w.role || '—')}</div>
-            <div class="work-meta">${esc(w.company || '—')} · ${esc(w.duration || '—')}</div>
-          </div>`).join('')}</div>`
-      : '<span style="color:var(--muted)">—</span>';
-
-    const eduHtml = (cv.education || []).length
-      ? `<div class="work-list">${cv.education.map(e => `
-          <div class="work-item">
-            <div class="work-role">${esc(e.degree || '—')}</div>
-            <div class="work-meta">${esc(e.school || '—')}${e.duration ? ' · ' + esc(e.duration) : ''}</div>
-          </div>`).join('')}</div>`
-      : '<span style="color:var(--muted)">—</span>';
-
-    const projectsHtml = (cv.projects || []).length
-      ? `<div class="work-list">${cv.projects.map(p => `
-          <div class="work-item">
-            <div class="work-role">${esc(p.name || '—')}${p.url ? ` <a href="${esc(p.url)}" target="_blank" style="color:var(--accent);font-size:11px;font-weight:400">↗</a>` : ''}</div>
-            <div class="work-meta">${p.duration ? esc(p.duration) + ' · ' : ''}${(p.tech || []).length ? esc((p.tech || []).join(', ')) : ''}</div>
-            ${p.description ? `<div style="margin-top:4px;font-size:12px;color:var(--text)">${esc(p.description)}</div>` : ''}
-          </div>`).join('')}</div>`
-      : null;
-
-    const awardsHtml = (cv.awards || []).length
-      ? `<div class="work-list">${cv.awards.map(a => `
-          <div class="work-item">
-            <div class="work-role">${esc(a.name || '—')}</div>
-            <div class="work-meta">${esc(a.issuer || '—')}${a.year ? ' · ' + esc(a.year) : ''}</div>
-            ${a.description ? `<div style="margin-top:4px;font-size:12px;color:var(--text)">${esc(a.description)}</div>` : ''}
-          </div>`).join('')}</div>`
-      : null;
-
-    const certsHtml = (cv.certifications || []).length
-      ? `<div class="work-list">${cv.certifications.map(c => `
-          <div class="work-item">
-            <div class="work-role">${esc(c.name || '—')}</div>
-            <div class="work-meta">${esc(c.issuer || '—')}${c.year ? ' · ' + esc(c.year) : ''}</div>
-          </div>`).join('')}</div>`
-      : null;
-
-    return `
-      <div class="cv-grid">
-        <div class="cv-field"><span class="cv-label">Họ tên</span>     <span class="cv-value">${esc(cv.name  || '—')}</span></div>
-        <div class="cv-field"><span class="cv-label">Email</span>       <span class="cv-value">${esc(cv.email || '—')}</span></div>
-        <div class="cv-field"><span class="cv-label">Điện thoại</span>  <span class="cv-value">${esc(cv.phone || '—')}</span></div>
-        <div class="cv-field"><span class="cv-label">Kinh nghiệm</span> <span class="cv-value">${cv.years_exp != null ? esc(cv.years_exp) + ' năm' : '—'}</span></div>
-        <div class="cv-field"><span class="cv-label">Học vấn</span>     <div>${eduHtml}</div></div>
-        <div class="cv-field"><span class="cv-label">Kỹ năng</span>     <div>${skillsHtml}</div></div>
-        <div class="cv-field"><span class="cv-label">Lịch sử</span>     <div>${workHtml}</div></div>
-        ${projectsHtml ? `<div class="cv-field"><span class="cv-label">Dự án</span><div>${projectsHtml}</div></div>` : ''}
-        ${awardsHtml ? `<div class="cv-field"><span class="cv-label">Giải thưởng</span><div>${awardsHtml}</div></div>` : ''}
-        ${certsHtml ? `<div class="cv-field"><span class="cv-label">Chứng chỉ</span><div>${certsHtml}</div></div>` : ''}
-        ${cv.summary ? `<div class="cv-field"><span class="cv-label">Tóm tắt</span><span class="cv-value">${esc(cv.summary)}</span></div>` : ''}
-      </div>`;
-  }
-
-  function skillTags(skills) {
-    if (!Array.isArray(skills) || !skills.length) return '<span style="color:var(--muted)">—</span>';
-    return skills.slice(0, 4).map(s => `<span class="skill-tag">${esc(s)}</span>`).join('')
-      + (skills.length > 4 ? `<span class="skill-tag" style="opacity:.6">+${skills.length - 4}</span>` : '');
-  }
-
-  function eduSummary(edu) {
-    if (!Array.isArray(edu) || !edu.length) return '—';
-    return edu.map(e => {
-      const degree = e.degree || '';
-      const school = e.school || '';
-      return esc([degree, school].filter(Boolean).join(' — ') || '—');
-    }).join('<br>');
-  }
-
-  // Tabs
-  function switchTab(name) {
-    document.querySelectorAll('[data-tab]').forEach(t =>
-      t.classList.toggle('active', t.dataset.tab === name));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    document.getElementById('panel-' + name).classList.add('active');
-    if (name === 'storage') loadStorage();
-    if (name === 'chat')    loadCVListForChat();
-  }
-
-  // Drop zone
-  const dropZone = document.getElementById('drop-zone');
-  let selectedFile = null;
-
-  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-  dropZone.addEventListener('drop', e => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    const f = e.dataTransfer.files[0];
-    if (f) setFile(f);
-  });
-
-  function onFileSelected(input) { if (input.files[0]) setFile(input.files[0]); }
-
-  function setFile(file) {
-    selectedFile = file;
-    document.getElementById('dz-filename').textContent = file.name;
-    document.getElementById('upload-btn').disabled = false;
-    hideAlert('upload-alert');
-    document.getElementById('upload-result').classList.remove('show');
-  }
-
-  // Upload single CV
-  async function uploadCV() {
-    if (!selectedFile) return;
-    const btn     = document.getElementById('upload-btn');
-    const spinner = document.getElementById('upload-spinner');
-    btn.disabled = true;
-    spinner.classList.add('show');
-    hideAlert('upload-alert');
-
-    const form = new FormData();
-    form.append('file', selectedFile);
-
-    try {
-      const res  = await fetch(`${API}/UploadCV`, { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-
-      const result = data.results;
-      showAlert('upload-alert', `CV "${selectedFile.name}" đã được upload thành công.`, 'success');
-
-      const badge = document.getElementById('upload-result-badge');
-      badge.textContent = result.status;
-      badge.className   = `badge ${result.status}`;
-      document.getElementById('upload-result-name').textContent = result.file_name;
-      document.getElementById('upload-result-body').innerHTML   = renderParsedCV(result.text);
-      document.getElementById('upload-result').classList.add('show');
-    } catch (err) {
-      showAlert('upload-alert', err.message, 'error');
-    } finally {
-      btn.disabled = false;
-      spinner.classList.remove('show');
-    }
-  }
-
-  // Upload batch
-  async function uploadBatch() {
-    const folderPath = document.getElementById('folder-path-input').value.trim();
-    if (!folderPath) return;
-
-    const btn     = document.getElementById('batch-btn');
-    const spinner = document.getElementById('batch-spinner');
-    btn.disabled = true;
-    spinner.classList.add('show');
-    hideAlert('batch-alert');
-    document.getElementById('batch-results').innerHTML = '';
-
-    const form = new FormData();
-    form.append('folder_path', folderPath);
-
-    try {
-      const res  = await fetch(`${API}/UploadMultipleCVs`, { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-
-      const results = data.results || [];
-      const success = results.filter(r => r.status === 'success').length;
-      showAlert('batch-alert',
-        `Hoàn tất: ${success}/${results.length} file thành công.`,
-        success === results.length ? 'success' : 'warn');
-
-      const container = document.getElementById('batch-results');
-      results.forEach(r => {
-        const div = document.createElement('div');
-        div.className = 'batch-item';
-        div.innerHTML = `
-          <div class="status-dot ${esc(r.status)}"></div>
-          <span class="name">${esc(r.file_name)}</span>
-          <span class="badge ${esc(r.status)}">${esc(r.status)}</span>
-          ${r.error_message ? `<span style="color:var(--error);font-size:12px">${esc(r.error_message)}</span>` : ''}`;
-        container.appendChild(div);
-      });
-    } catch (err) {
-      showAlert('batch-alert', err.message, 'error');
-    } finally {
-      btn.disabled = false;
-      spinner.classList.remove('show');
-    }
-  }
-
-  // Semantic search
-  async function searchSemantic() {
-    const query = document.getElementById('semantic-input').value.trim();
-    if (!query) { showAlert('semantic-alert', 'Vui lòng nhập câu truy vấn.', 'warn'); return; }
-
-    const spinner = document.getElementById('semantic-spinner');
-    spinner.classList.add('show');
-    hideAlert('semantic-alert');
-    document.getElementById('semantic-results').innerHTML = '';
-
-    try {
-      const t0 = performance.now();
-      const res = await fetch(`${API}/Search/Semantic`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, top_k: 5 }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-      const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
-
-      const results = data.results || [];
-      if (results.length === 0) {
-        showAlert('semantic-alert', `Không tìm thấy CV nào phù hợp (${elapsed}s).`, 'warn');
-        return;
-      }
-
-      showAlert('semantic-alert',
-        `Tìm thấy ${results.length} CV phù hợp trong ${elapsed}s.`, 'success');
-
-      const container = document.getElementById('semantic-results');
-      container.innerHTML = results.map(r => `
-        <div class="semantic-card">
-          <div class="semantic-card-header">
-            <span class="semantic-card-name">${esc(r.cv.name || r.cv_key)}</span>
-            <span class="semantic-score">${r.best_score.toFixed(3)}</span>
-          </div>
-          <div class="semantic-meta">
-            ${esc(r.cv.email || '')}
-            ${r.cv.years_exp != null ? '· ' + r.cv.years_exp + ' năm KN' : ''}
-          </div>
-          <div>
-            ${r.matched_chunks.map(c => `
-              <div class="matched-chunk">
-                <div class="matched-chunk-meta">
-                  <span class="matched-chunk-section">${esc(c.section)}</span>
-                  <span>${c.score.toFixed(3)}</span>
-                </div>
-                <div class="matched-chunk-text">${esc(c.text)}</div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      `).join('');
-    } catch (err) {
-      showAlert('semantic-alert', err.message, 'error');
-    } finally {
-      spinner.classList.remove('show');
-    }
-  }
-
-  // Storage
-  function renderStorageCard(r) {
-    const header = `
-      <div class="cv-card-header">
-        <span class="cv-card-filename">${esc(r.file_name)}</span>
-        <span class="ext-badge">${esc(r.extension)}</span>
-        <span class="badge ${esc(r.status)}">${esc(r.status)}</span>
-      </div>`;
-
-    if (r.status === 'error') {
-      return `<div class="cv-card">${header}
-        <div style="color:var(--error);font-size:13px">${esc(r.error_message || 'Lỗi không xác định')}</div>
-      </div>`;
-    }
-
-    const skills = Array.isArray(r.skills) && r.skills.length
-      ? `<div class="cv-info cv-info-wide">
-           <div class="cv-info-label">Kỹ năng</div>
-           <div class="skill-list" style="margin-top:4px">${skillTags(r.skills)}</div>
-         </div>`
-      : '';
-
-    const summary = r.summary
-      ? `<div class="cv-info cv-info-wide">
-           <div class="cv-info-label">Tóm tắt</div>
-           <div class="cv-info-value" style="color:var(--muted)">${esc(r.summary)}</div>
-         </div>`
-      : '';
-
-    return `<div class="cv-card">${header}
-      <div class="cv-card-body">
-        <div class="cv-info"><div class="cv-info-label">Họ tên</div><div class="cv-info-value">${esc(r.name || '—')}</div></div>
-        <div class="cv-info"><div class="cv-info-label">Email</div><div class="cv-info-value">${esc(r.email || '—')}</div></div>
-        <div class="cv-info"><div class="cv-info-label">Điện thoại</div><div class="cv-info-value">${esc(r.phone || '—')}</div></div>
-        <div class="cv-info"><div class="cv-info-label">Kinh nghiệm</div><div class="cv-info-value">${r.years_exp != null ? esc(r.years_exp) + ' năm' : '—'}</div></div>
-        <div class="cv-info"><div class="cv-info-label">Học vấn</div><div class="cv-info-value">${eduSummary(r.education)}</div></div>
-        ${skills}
-        ${summary}
+<!-- Modal chi tiết CV (view/edit) -->
+<div class="modal-backdrop" id="cv-modal-backdrop" onclick="closeCVModal(event)">
+  <div class="modal-window" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title" id="cv-modal-title">Chi tiết CV</span>
+      <div class="modal-actions" id="cv-modal-actions">
+        <button class="icon-btn" id="cv-modal-back-btn" title="Quay lại" onclick="exitChatMode()" style="display:none">←</button>
+        <button class="icon-btn" id="cv-modal-chat-btn" title="Chat với ứng viên" onclick="enterChatMode()">💬</button>
+        <button class="icon-btn" id="cv-modal-edit-btn" title="Sửa" onclick="enterEditMode()">✏️</button>
+        <button class="icon-btn icon-btn-danger" id="cv-modal-delete-btn" title="Xoá" onclick="openDeleteConfirm()">🗑️</button>
+        <button class="icon-btn" id="cv-modal-reset-chat-btn" title="Bắt đầu chat mới" onclick="resetChatSession()" style="display:none">↻</button>
+        <button class="icon-btn" title="Đóng" onclick="closeCVModal()">✕</button>
       </div>
-    </div>`;
-  }
+    </div>
+    <div class="modal-body" id="cv-modal-body"></div>
+    <div class="modal-footer" id="cv-modal-footer" style="display:none">
+      <button class="btn btn-ghost" onclick="cancelEdit()">Huỷ</button>
+      <button class="btn btn-primary" onclick="saveEdit()">
+        <span class="spinner" id="cv-modal-save-spinner"></span>Lưu
+      </button>
+    </div>
+  </div>
+</div>
 
-  async function loadStorage() {
-    const content = document.getElementById('storage-content');
-    content.innerHTML = '<div class="empty-state">Đang tải...</div>';
+<!-- Modal xác nhận xoá -->
+<div class="modal-backdrop confirm-backdrop" id="cv-delete-backdrop" onclick="closeDeleteConfirm(event)">
+  <div class="modal-window modal-window-small" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title">Xác nhận xoá CV</span>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:14px;color:var(--text);line-height:1.6">
+        Bạn có chắc muốn xoá CV <strong id="cv-delete-name" style="color:var(--accent)">—</strong>?
+      </p>
+      <p style="font-size:12px;color:var(--muted);margin-top:6px">
+        Hành động này không thể hoàn tác. CV sẽ bị xoá khỏi cơ sở dữ liệu và chỉ mục tìm kiếm.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeDeleteConfirm()">Huỷ</button>
+      <button class="btn btn-danger" onclick="doDelete()">
+        <span class="spinner" id="cv-delete-spinner"></span>Xoá
+      </button>
+    </div>
+  </div>
+</div>
 
-    try {
-      const res  = await fetch(`${API}/Storage`);
-      const data = await res.json();
-      const entries = Object.entries(data.cv_storage || {});
+<!-- Scripts: load theo thứ tự (common rồi upload rồi storage rồi modal rồi chat),
+     storage tự auto-load list khi script chạy -->
+<script src="/static/js/common.js?v=2"></script>
+<script src="/static/js/upload.js?v=2"></script>
+<script src="/static/js/storage.js?v=2"></script>
+<script src="/static/js/modal.js?v=2"></script>
+<script src="/static/js/jd_match.js?v=2"></script>
+<script src="/static/js/chat.js?v=2"></script>
 
-      document.getElementById('storage-count').textContent = `${entries.length} CV`;
-
-      if (entries.length === 0) {
-        content.innerHTML = '<div class="empty-state">Chưa có CV nào được lưu trữ</div>';
-        return;
-      }
-
-      content.innerHTML = `<div class="storage-grid">${entries.map(([, r]) => renderStorageCard(r)).join('')}</div>`;
-    } catch (err) {
-      content.innerHTML = `<div class="empty-state" style="color:var(--error)">${esc(err.message)}</div>`;
-    }
-  }
-
-  // Auto-load storage on first render
-  loadStorage();
-
-  // ============================================================================
-  // Chat (T07) — session lock vào 1 CV, streaming response qua sentinel parsing
-  // Mỗi cv_key có 1 session persistent trong localStorage, sống qua refresh trang
-  // ============================================================================
-
-  const SOURCES_SENTINEL  = '\n__SOURCES__\n';
-  const SESSION_MAP_KEY   = 'cvextract_chat_sessions';   // {cv_key: session_id}
-  const LAST_ACTIVE_KEY   = 'cvextract_chat_last_cv';    // cv_key gần nhất
-  let chatCurrentCvKey    = null;
-  let chatCurrentSession  = null;
-  let chatStreaming       = false;
-
-  // Helpers localStorage
-  function loadSessionMap() {
-    try { return JSON.parse(localStorage.getItem(SESSION_MAP_KEY) || '{}'); }
-    catch { return {}; }
-  }
-  function getSessionFor(cvKey) { return loadSessionMap()[cvKey] || null; }
-  function setSessionFor(cvKey, sid) {
-    const map = loadSessionMap(); map[cvKey] = sid;
-    localStorage.setItem(SESSION_MAP_KEY, JSON.stringify(map));
-  }
-  function clearSessionFor(cvKey) {
-    const map = loadSessionMap(); delete map[cvKey];
-    localStorage.setItem(SESSION_MAP_KEY, JSON.stringify(map));
-  }
-
-  async function loadCVListForChat() {
-    const list = document.getElementById('chat-cv-list');
-    list.innerHTML = '<div class="empty-state" style="padding: 20px 14px; font-size: 12px;">Đang tải...</div>';
-    try {
-      const res  = await fetch(`${API}/Storage`);
-      const data = await res.json();
-      const entries = Object.entries(data.cv_storage || {});
-      if (entries.length === 0) {
-        list.innerHTML = '<div class="empty-state" style="padding: 20px 14px; font-size: 12px;">Chưa có CV nào</div>';
-        return;
-      }
-      list.innerHTML = entries.map(([key, cv]) => `
-        <div class="chat-cv-item ${key === chatCurrentCvKey ? 'active' : ''}"
-             data-cv-key="${esc(key)}" onclick="startChatSession('${esc(key)}')">
-          <div class="chat-cv-item-name">${esc(cv.name || key)}</div>
-          <div class="chat-cv-item-key">${esc(key)}</div>
-        </div>`).join('');
-
-      // Auto restore CV gần nhất sau refresh
-      const lastCv = localStorage.getItem(LAST_ACTIVE_KEY);
-      if (lastCv && entries.some(([k]) => k === lastCv) && !chatCurrentCvKey) {
-        startChatSession(lastCv);
-      }
-    } catch (err) {
-      list.innerHTML = `<div class="empty-state" style="padding: 20px 14px; color: var(--error);">${esc(err.message)}</div>`;
-    }
-  }
-
-  // Click CV: nếu đã có session cho cv_key này thì load lịch sử, không thì tạo mới
-  async function startChatSession(cvKey) {
-    if (chatStreaming) return;
-
-    let sessionId = getSessionFor(cvKey);
-    let messages  = [];
-
-    // Thử load session cũ; nếu 404 (đã bị TTL cleanup hoặc DELETE) thì tạo mới
-    if (sessionId) {
-      try {
-        const res = await fetch(`${API}/Chat/Sessions/${encodeURIComponent(sessionId)}`);
-        if (res.ok) {
-          const data = await res.json();
-          messages = data.messages || [];
-        } else if (res.status === 404) {
-          clearSessionFor(cvKey);
-          sessionId = null;
-        } else {
-          throw new Error(`HTTP ${res.status}`);
-        }
-      } catch (err) {
-        clearSessionFor(cvKey);
-        sessionId = null;
-      }
-    }
-
-    // Chưa có session hoặc session cũ đã chết → tạo mới
-    if (!sessionId) {
-      try {
-        const res = await fetch(`${API}/Chat/Sessions`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cv_key: cvKey }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-        const data = await res.json();
-        sessionId = data.session_id;
-        setSessionFor(cvKey, sessionId);
-      } catch (err) {
-        alert('Không tạo được session: ' + err.message);
-        return;
-      }
-    }
-
-    chatCurrentCvKey   = cvKey;
-    chatCurrentSession = sessionId;
-    localStorage.setItem(LAST_ACTIVE_KEY, cvKey);
-
-    // Update UI: highlight CV item, header có nút reset, render lại messages
-    document.querySelectorAll('.chat-cv-item').forEach(el =>
-      el.classList.toggle('active', el.dataset.cvKey === cvKey));
-    document.getElementById('chat-pane-header-text').innerHTML =
-      `Đang chat về: <strong>${esc(cvKey)}</strong>`;
-    document.getElementById('chat-new-session-btn').style.display = 'inline-block';
-
-    renderHistoryMessages(messages);
-
-    const input = document.getElementById('chat-input');
-    input.disabled = false;
-    input.placeholder = 'Hỏi về CV này... (Enter để gửi, Shift+Enter để xuống dòng)';
-    input.focus();
-    document.getElementById('chat-send-btn').disabled = false;
-  }
-
-  // Xoá session hiện tại + tạo mới cho cùng cv_key, clear UI
-  async function resetChatSession() {
-    if (chatStreaming) return;
-    if (!chatCurrentCvKey || !chatCurrentSession) return;
-    if (!confirm('Xoá toàn bộ chat hiện tại và bắt đầu lại?')) return;
-
-    try {
-      await fetch(`${API}/Chat/Sessions/${encodeURIComponent(chatCurrentSession)}`, { method: 'DELETE' });
-    } catch {
-      // Nếu DELETE fail (vd session đã bị TTL xoá) cũng tiếp tục local cleanup
-    }
-    clearSessionFor(chatCurrentCvKey);
-    const cv = chatCurrentCvKey;
-    chatCurrentSession = null;
-    chatCurrentCvKey   = null;
-    await startChatSession(cv);
-  }
-
-  // Render lại messages từ history khi switch CV hoặc reload trang
-  function renderHistoryMessages(messages) {
-    const wrap = document.getElementById('chat-messages');
-    wrap.innerHTML = '';
-    if (!messages || messages.length === 0) {
-      wrap.innerHTML = `<div class="chat-empty">
-        Bắt đầu hỏi về CV này.<br>
-        Hỏi về kinh nghiệm, kỹ năng, học vấn, hoặc dự án của ứng viên.
-      </div>`;
-      return;
-    }
-    for (const m of messages) {
-      renderMessage(m.role, m.content);
-      if (m.role === 'assistant' && Array.isArray(m.sources) && m.sources.length > 0) {
-        renderSources(m.sources);
-      }
-    }
-  }
-
-  function renderMessage(role, text) {
-    const wrap = document.getElementById('chat-messages');
-    const div = document.createElement('div');
-    div.className = `chat-msg ${role}`;
-    div.textContent = text;
-    wrap.appendChild(div);
-    wrap.scrollTop = wrap.scrollHeight;
-    return div;  // Return để stream có thể append text vào
-  }
-
-  function renderSources(sources) {
-    if (!sources || sources.length === 0) return;
-    const wrap = document.getElementById('chat-messages');
-    const details = document.createElement('details');
-    details.className = 'chat-sources';
-    const items = sources.map(s => `
-      <div class="chat-source-item">
-        <div class="chat-source-meta">
-          <span>${esc(s.section)}</span>
-          <span>${(s.score ?? 0).toFixed(3)}</span>
-        </div>
-        <div class="chat-source-text">${esc(s.chunk_text)}</div>
-      </div>`).join('');
-    details.innerHTML = `
-      <summary>🔍 ${sources.length} sources</summary>
-      <div class="chat-sources-list">${items}</div>`;
-    wrap.appendChild(details);
-    wrap.scrollTop = wrap.scrollHeight;
-  }
-
-  function renderTypingIndicator() {
-    const wrap = document.getElementById('chat-messages');
-    const div = document.createElement('div');
-    div.className = 'chat-typing';
-    div.id = 'chat-typing';
-    div.innerHTML = '<span></span><span></span><span></span>';
-    wrap.appendChild(div);
-    wrap.scrollTop = wrap.scrollHeight;
-  }
-
-  function removeTypingIndicator() {
-    const el = document.getElementById('chat-typing');
-    if (el) el.remove();
-  }
-
-  function onChatInputKey(e) {
-    // Enter gửi, Shift+Enter xuống dòng
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendChatMessage();
-    }
-  }
-
-  async function sendChatMessage() {
-    if (chatStreaming || !chatCurrentSession) return;
-    const input = document.getElementById('chat-input');
-    const text  = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    renderMessage('user', text);
-
-    const btn = document.getElementById('chat-send-btn');
-    input.disabled = true;
-    btn.disabled = true;
-    chatStreaming = true;
-    renderTypingIndicator();
-
-    let botBubble = null;
-    let buffer    = '';
-
-    try {
-      const res = await fetch(
-        `${API}/Chat/Sessions/${encodeURIComponent(chatCurrentSession)}/Messages/Stream`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text }),
-        },
-      );
-      if (!res.ok) {
-        removeTypingIndicator();
-        const errText = await res.text();
-        throw new Error(`HTTP ${res.status}: ${errText}`);
-      }
-
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder('utf-8');
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // Tách answer và sources nếu sentinel đã arrive
-        const idx = buffer.indexOf(SOURCES_SENTINEL);
-        const answerPart = idx === -1 ? buffer : buffer.slice(0, idx);
-
-        if (!botBubble && answerPart.length > 0) {
-          removeTypingIndicator();
-          botBubble = renderMessage('assistant', '');
-        }
-        if (botBubble) {
-          botBubble.textContent = answerPart;
-          const wrap = document.getElementById('chat-messages');
-          wrap.scrollTop = wrap.scrollHeight;
-        }
-
-        // Nếu sentinel + full JSON đã đến, parse và render sources
-        if (idx !== -1) {
-          const jsonPart = buffer.slice(idx + SOURCES_SENTINEL.length);
-          try {
-            const sources = JSON.parse(jsonPart);
-            renderSources(sources);
-            buffer = '';  // Đã parse xong
-          } catch {
-            // JSON chưa đủ, đợi chunk tiếp theo
-          }
-        }
-      }
-      // Stream done, đảm bảo typing indicator đã gỡ
-      removeTypingIndicator();
-      if (!botBubble) renderMessage('assistant', '(empty response)');
-    } catch (err) {
-      removeTypingIndicator();
-      renderMessage('assistant', '⚠️ Lỗi: ' + err.message);
-    } finally {
-      chatStreaming = false;
-      input.disabled = false;
-      btn.disabled = false;
-      input.focus();
-    }
-  }
-</script>
 </body>
 </html>

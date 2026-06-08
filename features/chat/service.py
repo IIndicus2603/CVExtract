@@ -1,45 +1,45 @@
-# Lớp điều phối chat: viết lại câu hỏi, tìm các đoạn CV liên quan,
-# gọi llm trả lời, lưu vào DB (user và bot cùng lưu 1 lần)
+# Chat orchestration, condense câu hỏi rồi retrieve chunks rồi answer LLM rồi lưu DB
 
 import json
 import logging
 import time
 from typing import AsyncIterator, Awaitable, Callable
 
-from langchain_groq import ChatGroq
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.config import CHAT_LLM_MODEL, CHAT_REFUSAL_SCORE_THRESHOLD, GROQ_API_KEY
-from features.chat.llm.answer import build_answer_chain, format_context
+from core.config import (
+    CHAT_LLM_MODEL,
+    CHAT_LLM_PROVIDER,
+    CHAT_REFUSAL_SCORE_THRESHOLD,
+    CHAT_RETRIEVE_TOP_K,
+)
+from core.llm.client import build_llm_client
+from core.schemas import SearchHit
+from features.chat.llm.answer import build_answer_messages, format_context
 from features.chat.llm.condense import (
-    build_condense_chain,
+    build_condense_messages,
     format_history_for_condense,
 )
 from features.chat.memory.store import SessionStore
 from features.chat.schemas import ChatMessage, ChatResponse, ChatSession
-from features.retrieval.schemas import SearchHit
 
 logger = logging.getLogger(__name__)
 
 
-# Hàm tìm kiếm CV trả về list SearchHit
 SearchWithinCVFn = Callable[[str, str, int], Awaitable[list[SearchHit]]]
 
 
-# Số đoạn CV tốt nhất lấy ra mỗi câu hỏi
-RETRIEVE_TOP_K = 5
-
-# Đánh dấu cuối stream để tách phần text trả lời và phần danh sách sources
+# Sentinel cuối stream để tách phần text trả lời và phần JSON sources
 SOURCES_SENTINEL = "\n__SOURCES__\n"
 
-# Reject cố định khi không tìm thấy thông tin liên quan
 REFUSAL_MESSAGE = (
     "Tôi không tìm thấy thông tin này trong CV. "
     "Bạn có thể hỏi về kinh nghiệm, kỹ năng, học vấn, hoặc dự án của ứng viên."
 )
 
-# Reject: không tìm được đoạn nào hoặc điểm cao nhất dưới ngưỡng
+
 def _should_refuse(hits: list) -> tuple[bool, float]:
+    """Reject khi không có hit hoặc top score dưới threshold"""
     if not hits:
         return True, 0.0
     top_score = hits[0].score
@@ -48,58 +48,63 @@ def _should_refuse(hits: list) -> tuple[bool, float]:
 
 class ChatService:
     def __init__(self, search_fn: SearchWithinCVFn, store: SessionStore):
+        """Init LLM client từ core (provider + client lo abstraction)"""
         self._search = search_fn
         self._store = store
-        self._llm = ChatGroq(api_key=GROQ_API_KEY, model=CHAT_LLM_MODEL, temperature=0.3, max_tokens=1024, timeout=30)
-        # Tạo 2 pipeline 1 lần lúc khởi tạo, dùng chung cho mọi request
-        self._condense_chain = build_condense_chain(self._llm)
-        self._answer_chain = build_answer_chain(self._llm)
-        logger.info("ChatService ready: model=%s", CHAT_LLM_MODEL)
+        self._llm = build_llm_client(CHAT_LLM_PROVIDER, CHAT_LLM_MODEL)
+        logger.info("ChatService ready: provider=%s model=%s", CHAT_LLM_PROVIDER, CHAT_LLM_MODEL)
 
     async def create_session(self, db: AsyncSession, cv_key: str) -> ChatSession:
+        """Tạo session mới (delegate SessionStore)"""
         return await self._store.create(db, cv_key)
 
-    # Chỉ lấy info chính của phiên
     async def get_session(self, db: AsyncSession, session_id: str) -> ChatSession | None:
+        """Lấy info session (không messages)"""
         return await self._store.get(db, session_id)
 
     async def get_session_full(self, db: AsyncSession, session_id: str) -> ChatSession | None:
+        """Lấy session kèm full message history"""
         return await self._store.get_with_messages(db, session_id)
 
     async def delete_session(self, db: AsyncSession, session_id: str) -> bool:
+        """Xoá session + messages"""
         return await self._store.delete(db, session_id)
 
-    # Non streaming
+    async def _condense(
+        self, session_id: str, message: str, history_msgs: list[ChatMessage], label: str,
+    ) -> tuple[str, int, int, float]:
+        """Rewrite follow-up thành standalone, trả (standalone, p_tokens, c_tokens, elapsed)"""
+        if not history_msgs:
+            return message, 0, 0, 0.0
+        t0 = time.perf_counter()
+        history_str = format_history_for_condense(history_msgs)
+        system, user = build_condense_messages(history_str, message)
+        text, usage = await self._llm.chat_text(system, user)
+        standalone = text.strip() or message
+        elapsed = time.perf_counter() - t0
+        logger.info(
+            "Condensed%s (session=%s, %.2fs, tokens=p%d/c%d): '%s' -> '%s'",
+            label, session_id, elapsed, usage.prompt, usage.completion,
+            message[:60], standalone[:60],
+        )
+        return standalone, usage.prompt, usage.completion, elapsed
+
     async def chat(self, db: AsyncSession, session_id: str, message: str) -> ChatResponse:
+        """Non-streaming chat"""
         session = await self._store.get(db, session_id)
         if session is None:
             raise LookupError(f"Session '{session_id}' not found")
 
         t_total = time.perf_counter()
-
-        # Lượt đầu (chưa có lịch sử) thì không cần viết lại câu hỏi
         history_msgs = await self._store.get_history(db, session_id)
-        condense_time = 0.0
-        if history_msgs:
-            t_cd = time.perf_counter()
-            history_str = format_history_for_condense(history_msgs)
-            standalone = await self._condense_chain.ainvoke({
-                "chat_history": history_str,
-                "question": message,
-            })
-            standalone = standalone.strip()
-            condense_time = time.perf_counter() - t_cd
-            logger.info(
-                "Condensed (session=%s, %.2fs): '%s' -> '%s'",
-                session_id, condense_time, message[:60], standalone[:60],
-            )
-        else:
-            standalone = message
+        standalone, cp, cc, condense_time = await self._condense(
+            session_id, message, history_msgs, label="",
+        )
+        total_prompt = cp
+        total_completion = cc
 
-        # Tìm đoạn CV liên quan; bắt buộc chỉ tìm trong đúng 1 CV của session này
-        hits = await self._search(standalone, session.cv_key, RETRIEVE_TOP_K)
+        hits = await self._search(standalone, session.cv_key, CHAT_RETRIEVE_TOP_K)
 
-        # Nếu điểm cao nhất quá thấp thì từ chối luôn
         refuse, top_score = _should_refuse(hits)
         if refuse:
             logger.info(
@@ -113,17 +118,15 @@ class ChatService:
             )
             return ChatResponse(message=REFUSAL_MESSAGE, sources=[])
 
-        # Cho LLM trả lời theo đúng câu hỏi gốc của user 
+        # Answer LLM dùng câu hỏi GỐC (không phải standalone)
         t_ans = time.perf_counter()
-        context = format_context(hits)
-        answer = await self._answer_chain.ainvoke({
-            "context": context,
-            "question": message,
-        })
-        answer = answer.strip()
+        system, user = build_answer_messages(format_context(hits), message)
+        answer_text, ans_usage = await self._llm.chat_text(system, user)
+        answer = answer_text.strip()
+        total_prompt += ans_usage.prompt
+        total_completion += ans_usage.completion
         answer_time = time.perf_counter() - t_ans
 
-        # Lưu cả user và bot cùng lúc
         await self._store.append_pair(
             db, session_id,
             ChatMessage(role="user", content=message),
@@ -132,40 +135,28 @@ class ChatService:
 
         total_time = time.perf_counter() - t_total
         logger.info(
-            "Chat session=%s | top_score=%.3f | condense=%.2fs | answer=%.2fs | total=%.2fs | hits=%d",
+            "Chat session=%s | top_score=%.3f | condense=%.2fs | answer=%.2fs | total=%.2fs | hits=%d | tokens=(prompt=%d completion=%d total=%d)",
             session_id, top_score, condense_time, answer_time, total_time, len(hits),
+            total_prompt, total_completion, total_prompt + total_completion,
         )
         return ChatResponse(message=answer, sources=hits)
 
-    # Streaming
     async def chat_stream(self, db: AsyncSession, session_id: str, message: str) -> AsyncIterator[str]:
+        """Streaming chat, yield text chunks + SOURCES_SENTINEL + JSON sources cuối"""
         session = await self._store.get(db, session_id)
         if session is None:
             raise LookupError(f"Session '{session_id}' not found")
 
         t_total = time.perf_counter()
-
         history_msgs = await self._store.get_history(db, session_id)
-        condense_time = 0.0
-        if history_msgs:
-            t_cd = time.perf_counter()
-            history_str = format_history_for_condense(history_msgs)
-            standalone = await self._condense_chain.ainvoke({
-                "chat_history": history_str,
-                "question": message,
-            })
-            standalone = standalone.strip()
-            condense_time = time.perf_counter() - t_cd
-            logger.info(
-                "Condensed[stream] (session=%s, %.2fs): '%s' -> '%s'",
-                session_id, condense_time, message[:60], standalone[:60],
-            )
-        else:
-            standalone = message
+        standalone, cp, cc, condense_time = await self._condense(
+            session_id, message, history_msgs, label="[stream]",
+        )
+        total_prompt = cp
+        total_completion = cc
 
-        hits = await self._search(standalone, session.cv_key, RETRIEVE_TOP_K)
+        hits = await self._search(standalone, session.cv_key, CHAT_RETRIEVE_TOP_K)
 
-        # Reject
         refuse, top_score = _should_refuse(hits)
         if refuse:
             logger.info(
@@ -181,27 +172,26 @@ class ChatService:
             )
             return
 
-        context = format_context(hits)
-
+        # Stream answer LLM dùng câu hỏi GỐC
         t_ans = time.perf_counter()
         buffer: list[str] = []
-        async for chunk in self._answer_chain.astream({
-            "context": context,
-            "question": message,
-        }):
-            buffer.append(chunk)
-            yield chunk
+        system, user = build_answer_messages(format_context(hits), message)
+        async for chunk in self._llm.stream_text(system, user):
+            if chunk.delta:
+                buffer.append(chunk.delta)
+                yield chunk.delta
+            if chunk.usage is not None:
+                total_prompt += chunk.usage.prompt
+                total_completion += chunk.usage.completion
 
         answer = "".join(buffer).strip()
-        answer_time = time.perf_counter() - t_ans 
+        answer_time = time.perf_counter() - t_ans
 
-        # Sau khi trả lời xong, gửi ký hiệu phân cách
         sources_json = json.dumps(
             [h.model_dump() for h in hits], ensure_ascii=False,
         )
         yield SOURCES_SENTINEL + sources_json
 
-        # Lưu cả cuộc trò chuyện sau khi stream xong
         await self._store.append_pair(
             db, session_id,
             ChatMessage(role="user", content=message),
@@ -210,6 +200,7 @@ class ChatService:
 
         total_time = time.perf_counter() - t_total
         logger.info(
-            "ChatStream session=%s | top_score=%.3f | condense=%.2fs | answer=%.2fs | total=%.2fs | hits=%d",
+            "ChatStream session=%s | top_score=%.3f | condense=%.2fs | answer=%.2fs | total=%.2fs | hits=%d | tokens=(prompt=%d completion=%d total=%d)",
             session_id, top_score, condense_time, answer_time, total_time, len(hits),
+            total_prompt, total_completion, total_prompt + total_completion,
         )

@@ -1,27 +1,21 @@
-# pipeline để viết lại câu hỏi follow-up thành câu đầy đủ
-# Ví dụ: "Anh ấy ở công ty nào?" -> "Alex Petrov ở công ty nào?"
+# Condense, viết lại câu follow-up thành câu standalone đầy đủ ngữ cảnh
 
-from langchain_core.language_models import BaseChatModel
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable
-
-from features.chat.llm.prompts import CONDENSE_PROMPT
+from features.chat.llm.prompts import CONDENSE_SYSTEM, CONDENSE_USER_TEMPLATE
 from features.chat.schemas import ChatMessage
 
 
-def build_condense_chain(llm: BaseChatModel) -> Runnable:
-    prompt = ChatPromptTemplate.from_template(CONDENSE_PROMPT)
-    return prompt | llm | StrOutputParser()
+def build_condense_messages(history: str, question: str) -> tuple[str, str]:
+    """Trả (system, user) prompts để gọi BaseProvider.chat/stream"""
+    return CONDENSE_SYSTEM, CONDENSE_USER_TEMPLATE.format(
+        chat_history=history, question=question,
+    )
 
 
-# Biến list message thành chuỗi text "User: ...\nAssistant: ..." để nhét vào prompt
-# Trả "" nếu không có message
 def format_history_for_condense(messages: list[ChatMessage]) -> str:
+    """List message thành 'User, ...\\nAssistant, ...' để nhét vào prompt"""
     if not messages:
         return ""
-    lines = []
-    for m in messages:
-        prefix = "User" if m.role == "user" else "Assistant"
-        lines.append(f"{prefix}: {m.content}")
-    return "\n".join(lines)
+    return "\n".join(
+        f"{'User' if m.role == 'user' else 'Assistant'}: {m.content}"
+        for m in messages
+    )
