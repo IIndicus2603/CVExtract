@@ -22,7 +22,6 @@ lxml==6.1.0
 pillow==12.2.0
 
 # LLM providers (mọi provider OpenAI-compatible đều dùng chung openai SDK)
-# openai 2.x cần thiết vì 1.54.3 truyền proxies vào httpx 0.28.1 đã bỏ tham số đó
 openai==2.38.0
 
 # Vector search
