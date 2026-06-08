@@ -1,13 +1,15 @@
 # Condense, viết lại câu follow-up thành câu standalone đầy đủ ngữ cảnh
 
+from core.llm.prompt_guard import wrap_untrusted
 from features.chat.llm.prompts import CONDENSE_SYSTEM, CONDENSE_USER_TEMPLATE
 from features.chat.schemas import ChatMessage
 
 
 def build_condense_messages(history: str, question: str) -> tuple[str, str]:
     """Trả (system, user) prompts để gọi BaseProvider.chat/stream"""
+    # History chứa message cũ (một phần từ CV) nên bọc bằng marker không tin cậy
     return CONDENSE_SYSTEM, CONDENSE_USER_TEMPLATE.format(
-        chat_history=history, question=question,
+        chat_history=wrap_untrusted(history), question=question,
     )
 
 

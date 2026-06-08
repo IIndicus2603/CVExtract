@@ -1,10 +1,13 @@
 # Prompt template gửi cho LLM để extract thông tin từ CV
 # Yêu cầu LLM trả về JSON đúng cấu trúc, không kèm text thừa
 
-# System prompt, thiết lập "vai trò" cho LLM
+from core.llm.prompt_guard import INJECTION_GUARD
+
+# System prompt, thiết lập "vai trò" cho LLM, kèm guard chống prompt injection
 SYSTEM_PROMPT = (
     "Bạn là chuyên gia phân tích CV. "
-    "Luôn trả về JSON hợp lệ, không có text thừa."
+    "Luôn trả về JSON hợp lệ, không có text thừa.\n\n"
+    + INJECTION_GUARD
 )
 
 # User prompt, chứa nội dung document và yêu cầu output structure
