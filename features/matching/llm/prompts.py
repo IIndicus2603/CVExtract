@@ -1,8 +1,11 @@
 # Prompt LLM extract yêu cầu từ JD (Job Description) thành JSON structured
 
+from core.llm.prompt_guard import INJECTION_GUARD
+
 JD_SYSTEM_PROMPT = (
     "Bạn là chuyên gia HR/recruiter. "
-    "Đọc Job Description và trả về JSON hợp lệ, không text thừa."
+    "Đọc Job Description và trả về JSON hợp lệ, không text thừa.\n\n"
+    + INJECTION_GUARD
 )
 
 JD_EXTRACT_TEMPLATE = """\

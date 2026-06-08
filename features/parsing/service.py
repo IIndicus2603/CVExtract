@@ -6,6 +6,7 @@ import logging
 
 from core.config import CV_CONFIDENCE_THRESHOLD
 from core.llm.client import build_llm_client
+from core.llm.prompt_guard import wrap_untrusted
 from core.llm.providers import TokenUsage
 
 from features.parsing.llm.prompts import CV_EXTRACT_TEMPLATE, SYSTEM_PROMPT
@@ -26,7 +27,8 @@ class ParsingService:
         """Parse 1 CV text thành (parsed_dict, token usage)"""
         logger.info("Extracting CV | text_len=%d chars", len(cv_text))
         today = _dt.date.today().strftime("%Y-%m-%d")
-        user_prompt = CV_EXTRACT_TEMPLATE.format(cv_text=cv_text, today=today)
+        # Bọc cv_text bằng marker không tin cậy để chống prompt injection
+        user_prompt = CV_EXTRACT_TEMPLATE.format(cv_text=wrap_untrusted(cv_text), today=today)
         raw, usage = await self._client.extract_json(SYSTEM_PROMPT, user_prompt)
         return ParsedCV.normalize(raw), usage
 
