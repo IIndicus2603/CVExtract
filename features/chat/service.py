@@ -37,6 +37,12 @@ REFUSAL_MESSAGE = (
     "Bạn có thể hỏi về kinh nghiệm, kỹ năng, học vấn, hoặc dự án của ứng viên."
 )
 
+# LLM lỗi hoặc rate limit trả rỗng thì dùng message này thay vì lưu message rỗng vào DB
+LLM_ERROR_MESSAGE = (
+    "Xin lỗi, hệ thống đang gián đoạn khi sinh câu trả lời. "
+    "Vui lòng thử lại sau ít phút."
+)
+
 
 def _should_refuse(hits: list) -> tuple[bool, float]:
     """Reject khi không có hit hoặc top score dưới threshold"""
@@ -127,10 +133,17 @@ class ChatService:
         total_completion += ans_usage.completion
         answer_time = time.perf_counter() - t_ans
 
+        # LLM fail trả rỗng thì thay bằng thông báo thân thiện, không kèm sources
+        sources = hits
+        if not answer:
+            logger.warning("Empty LLM answer (session=%s), dùng LLM_ERROR_MESSAGE", session_id)
+            answer = LLM_ERROR_MESSAGE
+            sources = []
+
         await self._store.append_pair(
             db, session_id,
             ChatMessage(role="user", content=message),
-            ChatMessage(role="assistant", content=answer, sources=hits),
+            ChatMessage(role="assistant", content=answer, sources=sources),
         )
 
         total_time = time.perf_counter() - t_total
@@ -139,7 +152,7 @@ class ChatService:
             session_id, top_score, condense_time, answer_time, total_time, len(hits),
             total_prompt, total_completion, total_prompt + total_completion,
         )
-        return ChatResponse(message=answer, sources=hits)
+        return ChatResponse(message=answer, sources=sources)
 
     async def chat_stream(self, db: AsyncSession, session_id: str, message: str) -> AsyncIterator[str]:
         """Streaming chat, yield text chunks + SOURCES_SENTINEL + JSON sources cuối"""
@@ -187,15 +200,23 @@ class ChatService:
         answer = "".join(buffer).strip()
         answer_time = time.perf_counter() - t_ans
 
+        # Stream rỗng (LLM fail giữa chừng hoặc rate limit) thì yield thông báo thân thiện
+        sources = hits
+        if not answer:
+            logger.warning("Empty LLM stream answer (session=%s), dùng LLM_ERROR_MESSAGE", session_id)
+            answer = LLM_ERROR_MESSAGE
+            sources = []
+            yield answer
+
         sources_json = json.dumps(
-            [h.model_dump() for h in hits], ensure_ascii=False,
+            [h.model_dump() for h in sources], ensure_ascii=False,
         )
         yield SOURCES_SENTINEL + sources_json
 
         await self._store.append_pair(
             db, session_id,
             ChatMessage(role="user", content=message),
-            ChatMessage(role="assistant", content=answer, sources=hits),
+            ChatMessage(role="assistant", content=answer, sources=sources),
         )
 
         total_time = time.perf_counter() - t_total

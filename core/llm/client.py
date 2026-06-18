@@ -23,7 +23,7 @@ class LLMClient:
     def __init__(
         self,
         provider: BaseProvider,
-        max_retries: int = 1,
+        max_retries: int = 2,
         retry_backoff: float = 1.5,
     ):
         """max_retries=2 = 1 lần chính + 1 retry"""
@@ -126,4 +126,4 @@ def build_llm_client(provider: str, model: str | None = None) -> LLMClient:
         )
     adapter = OpenAICompatProvider(spec, model=model)
     logger.info("LLM client built | provider=%s | model=%s", name, adapter.model)
-    return LLMClient(adapter, max_retries=1)
+    return LLMClient(adapter, max_retries=2)

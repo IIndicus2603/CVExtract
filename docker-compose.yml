@@ -68,13 +68,13 @@ services:
       # Override được qua .env. Khi bật profile router9 trong cùng compose: dùng tên service `router9`.
       # Khi chạy 9router ngoài compose: trỏ tới host, vd http://host.docker.internal:20128/v1
       ROUTER9_BASE_URL: ${ROUTER9_BASE_URL:-http://router9:20128/v1}
-      CV_RAW_TEXT_DIR: ./tests/extraction/raw_txt
+      CV_RAW_TEXT_DIR: ./tests/data/raw_txt
     ports:
       - "8000:8000"
     volumes:
       - hf_cache:/root/.cache/huggingface
       - ./logs:/app/logs
-      - ./tests/extraction/raw_txt:/app/tests/extraction/raw_txt
+      - ./tests/data/raw_txt:/app/tests/data/raw_txt
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/docs"]
       interval: 30s
