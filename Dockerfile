@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 9router chạy từ app/ subdir; require resolve trong app/node_modules.
 # Cài better-sqlite3 đúng vào app/ để require tìm thấy.
-RUN npm install -g 9router && \
+RUN npm install -g 9router@0.5.2 && \
     cd "$(npm root -g)/9router/app" && \
     npm install better-sqlite3
 

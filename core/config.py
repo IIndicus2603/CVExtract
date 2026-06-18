@@ -15,7 +15,7 @@ _MYSQL_PASSWORD = os.getenv("MYSQL_ROOT_PASSWORD", "password")
 _MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "cvextract")
 DATABASE_URL: str = os.getenv(
     "DATABASE_URL",
-    f"mysql+aiomysql://root:{_MYSQL_PASSWORD}@localhost:3306/{_MYSQL_DATABASE}",
+    f"mysql+aiomysql://root:{_MYSQL_PASSWORD}@localhost:3307/{_MYSQL_DATABASE}",
 )
 
 # Qdrant (Docker Compose set QDRANT_URL host=qdrant)
@@ -40,8 +40,13 @@ MAX_SKILLS_SINGLE_CHUNK = 15  # Quá ngưỡng này thì skills tách nhiều ch
 JD_AGG_WEIGHTS = [0.5, 0.3, 0.2]
 JD_FALLBACK_SUMMARY_CHARS = 500  # Parse JD fail thì dùng raw JD làm summary
 
+# JD LLM evaluation, chỉ chạy khi caller bật llm_evaluate
+JD_LLM_EVAL_CONCURRENCY = 5        # Số CV chấm song song tối đa, bound API rate
+JD_LLM_EVAL_CV_TEXT_CHARS = 6000   # Cắt cv text JSON trước khi đưa vào prompt, chặn prompt phình
+JD_LLM_EVAL_EVIDENCE_CHARS = 1500  # Cắt phần matched_chunks evidence trong prompt
+
 # Extraction (Docker Compose set CV_RAW_TEXT_DIR)
-CV_RAW_TEXT_DIR: str = os.getenv("CV_RAW_TEXT_DIR", "tests/extraction/raw_txt")  # Dump raw text sau extract để debug, rỗng để tắt
+CV_RAW_TEXT_DIR: str = os.getenv("CV_RAW_TEXT_DIR", "tests/data/raw_txt")  # Dump raw text sau extract để debug, rỗng để tắt
 
 # Parsing LLM, provider: groq | nvidia | 9router
 PARSING_LLM_PROVIDER = "9router"

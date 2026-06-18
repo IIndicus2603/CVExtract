@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CV Extractor</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v=3" />
 </head>
 <body>
 
@@ -126,6 +126,9 @@
         <label style="font-size:13px;display:flex;align-items:center;gap:6px">
           <input type="checkbox" id="jd-strict-skills" /> Lọc cứng skills
         </label>
+        <label style="font-size:13px;display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="jd-llm-evaluate" /> Chấm điểm bằng LLM
+        </label>
       </div>
 
       <button class="btn btn-primary" id="jd-match-btn" onclick="runJDMatch()" style="margin-top:14px">
@@ -188,12 +191,12 @@
 
 <!-- Scripts: load theo thứ tự (common rồi upload rồi storage rồi modal rồi chat),
      storage tự auto-load list khi script chạy -->
-<script src="/static/js/common.js?v=2"></script>
-<script src="/static/js/upload.js?v=2"></script>
-<script src="/static/js/storage.js?v=2"></script>
-<script src="/static/js/modal.js?v=2"></script>
-<script src="/static/js/jd_match.js?v=2"></script>
-<script src="/static/js/chat.js?v=2"></script>
+<script src="/static/js/common.js?v=3"></script>
+<script src="/static/js/upload.js?v=3"></script>
+<script src="/static/js/storage.js?v=3"></script>
+<script src="/static/js/modal.js?v=3"></script>
+<script src="/static/js/jd_match.js?v=3"></script>
+<script src="/static/js/chat.js?v=3"></script>
 
 </body>
 </html>

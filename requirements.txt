@@ -4,6 +4,9 @@ uvicorn==0.45.0
 python-multipart==0.0.26
 starlette==1.0.0
 
+# Console logging đẹp + traceback tô màu
+rich==15.0.0
+
 # Config
 python-dotenv==1.2.2
 
