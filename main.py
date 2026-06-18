@@ -399,6 +399,7 @@ async def match_jd(req: JDMatchRequest, db: AsyncSession = Depends(get_db)):
         db, req.jd_text, req.top_k,
         strict_skills_filter=req.strict_skills_filter,
         strict_years_filter=req.strict_years_filter,
+        llm_evaluate=req.llm_evaluate,
     )
 
 
@@ -408,6 +409,7 @@ async def match_jd_upload(
     top_k: int = Form(5),
     strict_skills_filter: bool = Form(False),
     strict_years_filter: bool = Form(True),
+    llm_evaluate: bool = Form(False),
     db: AsyncSession = Depends(get_db),
 ):
     """Match JD upload PDF/DOCX ra top-K CV phù hợp"""
@@ -428,6 +430,7 @@ async def match_jd_upload(
         db, result.text, top_k,
         strict_skills_filter=strict_skills_filter,
         strict_years_filter=strict_years_filter,
+        llm_evaluate=llm_evaluate,
     )
 
 
@@ -493,4 +496,5 @@ async def delete_chat_session(session_id: str, db: AsyncSession = Depends(get_db
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # log_config=None để uvicorn giữ nguyên cấu hình logging từ setup_logging
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_config=None)
