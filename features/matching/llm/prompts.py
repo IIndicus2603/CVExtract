@@ -50,11 +50,12 @@ EVAL_USER_TEMPLATE = """\
 }}
 
 Quy tắc:
-- "score": số thực 0..1, 1 là phù hợp hoàn hảo, cân nhắc kỹ năng cộng kinh nghiệm cộng lĩnh vực
+- "score": số thực 0..1, 1 là phù hợp hoàn hảo, cân nhắc kỹ năng cộng kinh nghiệm cộng lĩnh vực cộng thành tích liên quan
 - "recommendation": 1 trong 4 nhãn strong/good/weak/reject dựa trên score
 - "matched_skills": skill trong CV trùng với required_skills của JD
 - "missing_skills": required_skills của JD mà CV không thể hiện
 - "experience_fit": so kinh nghiệm CV với yêu cầu kinh nghiệm bên dưới. Nếu JD không yêu cầu số năm thì coi là đạt, không trừ điểm ứng viên ít hoặc chưa có kinh nghiệm và không cộng điểm chỉ vì nhiều năm
+- giải thưởng/thành tích liên quan tới vị trí hoặc lĩnh vực phải CỘNG THÊM vào "score" (mỗi thành tích nổi bật khoảng +0.05 đến +0.1, tổng không vượt 1.0) và nêu ở "strengths"; thành tích không liên quan thì bỏ qua, không cộng không trừ
 - chỉ đánh giá dựa trên dữ liệu được cung cấp, không suy diễn ngoài dữ liệu
 
 Yêu cầu tuyển dụng (JD):

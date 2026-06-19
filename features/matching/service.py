@@ -16,7 +16,6 @@ from core.config import (
     JD_AGG_WEIGHTS,
     JD_FALLBACK_SUMMARY_CHARS,
     JD_LLM_EVAL_CONCURRENCY,
-    JD_LLM_EVAL_CV_TEXT_CHARS,
     JD_LLM_EVAL_EVIDENCE_CHARS,
     MAX_CHUNKS_PER_CV,
     UNLIMITED_FETCH_LIMIT,
@@ -190,7 +189,7 @@ class MatchingService:
         self, parsed_jd: ParsedJD, cv_match: CVMatch,
     ) -> tuple[LLMEvaluation | None, TokenUsage]:
         """Gọi LLM chấm 1 CV với JD, trả LLMEvaluation hoặc None kèm usage"""
-        cv_text = str(cv_match.cv.get("text") or "")[:JD_LLM_EVAL_CV_TEXT_CHARS]
+        cv_text = str(cv_match.cv.get("text") or "")
         evidence = "\n".join(
             f"[{c.get('section', '')}] {c.get('text', '')}" for c in cv_match.matched_chunks
         )[:JD_LLM_EVAL_EVIDENCE_CHARS]

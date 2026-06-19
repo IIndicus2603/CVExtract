@@ -43,7 +43,6 @@ JD_MATCH_DEFAULT_TOP_K = 5       # Số CV trả ra mặc định mỗi JD khi c
 
 # JD LLM evaluation, chỉ chạy khi caller bật llm_evaluate
 JD_LLM_EVAL_CONCURRENCY = 5        # Số CV chấm song song tối đa, bound API rate
-JD_LLM_EVAL_CV_TEXT_CHARS = 6000   # Cắt cv text JSON trước khi đưa vào prompt, chặn prompt phình
 JD_LLM_EVAL_EVIDENCE_CHARS = 1500  # Cắt phần matched_chunks evidence trong prompt
 
 # Extraction (Docker Compose set CV_RAW_TEXT_DIR)

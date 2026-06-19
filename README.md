@@ -123,7 +123,6 @@ Sửa trực tiếp [`core/config.py`](core/config.py), **không** đặt trong 
 | Hằng số                      | Default  | Ý nghĩa                                                     |
 | ------------------------------ | -------- | ------------------------------------------------------------- |
 | `JD_LLM_EVAL_CONCURRENCY`    | `5`    | Số CV chấm song song tối đa, bound API rate               |
-| `JD_LLM_EVAL_CV_TEXT_CHARS`  | `6000` | Cắt CV text JSON trước khi đưa vào prompt, chặn phình |
 | `JD_LLM_EVAL_EVIDENCE_CHARS` | `1500` | Cắt phần matched_chunks evidence trong prompt               |
 
 **Chat**
