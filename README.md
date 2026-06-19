@@ -114,6 +114,7 @@ Sửa trực tiếp [`core/config.py`](core/config.py), **không** đặt trong 
 
 | Hằng số                     | Default             | Ý nghĩa                                                                                              |
 | ----------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------ |
+| `JD_MATCH_DEFAULT_TOP_K`    | `5`               | Số CV trả về mặc định mỗi JD khi request không gửi `top_k` (trần hard-code `le=50`)        |
 | `JD_AGG_WEIGHTS`            | `[0.5, 0.3, 0.2]` | Trọng số top-N chunks/CV khi tính điểm aggregate;**tổng = 1.0**, `len()` quyết định N |
 | `JD_FALLBACK_SUMMARY_CHARS` | `500`             | Parse JD fail thì cắt N ký tự raw JD làm summary                                                  |
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import (
     CHAT_HISTORY_LAST_N,
     EMBEDDING_DIM, EMBEDDING_MODEL,
+    JD_MATCH_DEFAULT_TOP_K,
     PARSING_LLM_MODEL, PARSING_LLM_PROVIDER,
     QDRANT_COLLECTION, QDRANT_URL,
     RERANKER_MODEL,
@@ -406,7 +407,7 @@ async def match_jd(req: JDMatchRequest, db: AsyncSession = Depends(get_db)):
 @app.post("/Match/JD/Upload", response_model=MatchResponse)
 async def match_jd_upload(
     file: UploadFile = File(...),
-    top_k: int = Form(5),
+    top_k: int = Form(JD_MATCH_DEFAULT_TOP_K, ge=1, le=50),
     strict_skills_filter: bool = Form(False),
     strict_years_filter: bool = Form(True),
     llm_evaluate: bool = Form(False),

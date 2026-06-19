@@ -39,6 +39,7 @@ MAX_SKILLS_SINGLE_CHUNK = 15  # Quá ngưỡng này thì skills tách nhiều ch
 # JD matching, trọng số top-N chunks/CV khi tính điểm aggregated (tổng = 1.0), len() quyết định N chunks mỗi CV
 JD_AGG_WEIGHTS = [0.5, 0.3, 0.2]
 JD_FALLBACK_SUMMARY_CHARS = 500  # Parse JD fail thì dùng raw JD làm summary
+JD_MATCH_DEFAULT_TOP_K = 5       # Số CV trả ra mặc định mỗi JD khi caller không truyền top_k
 
 # JD LLM evaluation, chỉ chạy khi caller bật llm_evaluate
 JD_LLM_EVAL_CONCURRENCY = 5        # Số CV chấm song song tối đa, bound API rate

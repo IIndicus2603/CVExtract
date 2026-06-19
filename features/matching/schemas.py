@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from core.config import JD_MATCH_DEFAULT_TOP_K
+
 
 def _to_score(v) -> float:
     """Ép value LLM về float 0..1, clamp ngoài khoảng, trả 0.0 nếu không parse được"""
@@ -16,7 +18,7 @@ def _to_score(v) -> float:
 
 class JDMatchRequest(BaseModel):
     jd_text: str = Field(..., min_length=10, max_length=20000)
-    top_k: int = Field(default=5, ge=1, le=50)
+    top_k: int = Field(default=JD_MATCH_DEFAULT_TOP_K, ge=1, le=50)
     # Hard filter trên Qdrant (years/skills), False thì chỉ ranking
     strict_skills_filter: bool = False
     strict_years_filter: bool = True
