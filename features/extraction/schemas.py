@@ -5,14 +5,14 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-# Trạng thái của 1 lần extract, thành công hay lỗi
 class CVStatus(str, Enum):
+    """Trạng thái của 1 lần extract, thành công hay lỗi"""
     SUCCESS = "success"
     ERROR = "error"
 
 
-# Kết quả của 1 lần extract 1 file CV
 class CVResult(BaseModel):
+    """Kết quả của 1 lần extract 1 file CV"""
     file_name: str = Field(..., description="Tên file CV")
     extension: str = Field(..., description="Phần mở rộng của file (.pdf, .docx)")
     status: CVStatus = Field(..., description="Trạng thái trích xuất")

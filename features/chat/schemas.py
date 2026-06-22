@@ -9,6 +9,7 @@ from core.schemas import SearchHit
 
 
 def utc_naive() -> datetime:
+    """UTC hiện tại dạng naive (bỏ tzinfo) để khớp với UTC_TIMESTAMP() của DB"""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 

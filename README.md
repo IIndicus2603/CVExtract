@@ -242,7 +242,13 @@ Sửa trực tiếp [`core/config.py`](core/config.py), **không** đặt trong 
   "results": [
     {
       "cv_key": "nguyen_van_a",
-      "cv": { /* full CV dict */ },
+      "cv": {
+        "name": "Nguyễn Văn A",
+        "email": "nguyenvana@example.com",
+        "years_exp": 3,
+        "skills": ["Python", "FastAPI", "PostgreSQL"],
+        "...": "đầy đủ các trường như ở ví dụ Upload CV phía trên"
+      },
       "score": 0.873,
       "matched_chunks": [
         { "section": "work_history", "text": "...", "score": 0.91 },
