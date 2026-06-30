@@ -4,7 +4,7 @@ import asyncio
 import datetime as _dt
 import logging
 
-from core.config import CV_CONFIDENCE_THRESHOLD
+from core.config import CV_CONFIDENCE_THRESHOLD, PARSE_CONCURRENCY
 from core.llm.client import build_llm_client
 from core.llm.prompt_guard import wrap_untrusted
 from core.llm.providers import TokenUsage
@@ -40,8 +40,14 @@ class ParsingService:
         return parsed, usage
 
     async def parse_many(self, cv_texts: list[str]) -> tuple[list[dict], TokenUsage]:
-        """Parse song song, trả (list parsed, tổng token)"""
-        results = await asyncio.gather(*[self.parse(t) for t in cv_texts])
+        """Parse song song có giới hạn PARSE_CONCURRENCY, trả (list parsed, tổng token)"""
+        sem = asyncio.Semaphore(PARSE_CONCURRENCY)
+
+        async def _one(text: str) -> tuple[dict, TokenUsage]:
+            async with sem:
+                return await self.parse(text)
+
+        results = await asyncio.gather(*[_one(t) for t in cv_texts])
         parsed_list = [r[0] for r in results]
         total_usage = TokenUsage()
         for _, u in results:

@@ -20,11 +20,11 @@ DATABASE_URL: str = os.getenv(
 
 # Qdrant (Docker Compose set QDRANT_URL host=qdrant)
 QDRANT_URL: str = os.getenv("QDRANT_URL", "http://localhost:6333")
-QDRANT_COLLECTION = "cv_chunks_v1"
+QDRANT_COLLECTION = "cv_chunks_v2"
 
 # Embedding + reranker
-EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"  # bi-encoder, text thành vector
-EMBEDDING_DIM = 384                                        # Số chiều vector, phải khớp model
+EMBEDDING_MODEL = "BAAI/bge-m3"                            # bi-encoder đa ngôn ngữ, text thành vector
+EMBEDDING_DIM = 1024                                       # Số chiều vector, phải khớp model
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"                 # Cross-encoder chấm lại
 
 # Retrieval pipeline (dùng chung retrieval + matching)
@@ -52,11 +52,11 @@ CV_RAW_TEXT_DIR: str = os.getenv("CV_RAW_TEXT_DIR", "tests/data/raw_txt")  # Dum
 PARSING_LLM_PROVIDER = "9router"
 PARSING_LLM_MODEL = "llm"
 CV_CONFIDENCE_THRESHOLD = 0.5  # Min confidence từ LLM để công nhận là CV
+PARSE_CONCURRENCY = 20         # Số CV parse song song tối đa khi upload batch, bound API rate
 
 # Chat LLM
 CHAT_LLM_PROVIDER = "9router"
 CHAT_LLM_MODEL = "llm"
 CHAT_SESSION_TTL_HOURS = 24        # Phiên chat idle quá N giờ thì task nền tự xoá
 CHAT_HISTORY_LAST_N = 10           # Số message gần nhất nạp vào prompt condense
-CHAT_REFUSAL_SCORE_THRESHOLD = 0.3  # Top score dưới ngưỡng thì bot từ chối
 CHAT_RETRIEVE_TOP_K = 5            # Số đoạn CV lấy ra mỗi câu hỏi chat

@@ -95,9 +95,9 @@ Sửa trực tiếp [`core/config.py`](core/config.py), **không** đặt trong 
 
 | Hằng số             | Default                                   | Ý nghĩa                                                   |
 | --------------------- | ----------------------------------------- | ----------------------------------------------------------- |
-| `QDRANT_COLLECTION` | `cv_chunks_v1`                          | Tên collection Qdrant                                      |
-| `EMBEDDING_MODEL`   | `paraphrase-multilingual-MiniLM-L12-v2` | Bi-encoder, biến text thành vector                        |
-| `EMBEDDING_DIM`     | `384`                                   | Số chiều vector,**phải khớp** `EMBEDDING_MODEL` |
+| `QDRANT_COLLECTION` | `cv_chunks_v2`                          | Tên collection Qdrant                                      |
+| `EMBEDDING_MODEL`   | `BAAI/bge-m3`                           | Bi-encoder đa ngôn ngữ, biến text thành vector            |
+| `EMBEDDING_DIM`     | `1024`                                  | Số chiều vector,**phải khớp** `EMBEDDING_MODEL` |
 | `RERANKER_MODEL`    | `BAAI/bge-reranker-v2-m3`               | Cross-encoder chấm lại; để rỗng để tắt rerank       |
 
 **Retrieval + Chunker**
@@ -131,7 +131,6 @@ Sửa trực tiếp [`core/config.py`](core/config.py), **không** đặt trong 
 | -------------------------------- | ------- | ------------------------------------------------------ |
 | `CHAT_SESSION_TTL_HOURS`       | `24`  | Phiên chat idle quá N giờ thì task nền tự xoá   |
 | `CHAT_HISTORY_LAST_N`          | `10`  | Số message gần nhất nạp vào prompt condense       |
-| `CHAT_REFUSAL_SCORE_THRESHOLD` | `0.3` | Top score dưới ngưỡng thì bot từ chối trả lời |
 | `CHAT_RETRIEVE_TOP_K`          | `5`   | Số đoạn CV lấy ra mỗi câu hỏi chat              |
 
 ---
@@ -374,7 +373,7 @@ Project tổ chức theo **feature based** + **shared core layer**. Code dùng c
 1. **Load session + history** - `SessionStore.get()` lấy session info (`cv_key` đã lock). `get_history()` lấy `CHAT_HISTORY_LAST_N` message gần nhất.
 2. **Condense** - lượt đầu (no history) bỏ qua. Sau đó LLM viết lại câu hỏi follow-up thành standalone (vd "anh ấy có dùng React?" -> "Nguyễn Văn A có dùng React?").
 3. **Retrieve** - `RetrievalService.search_within_cv()` lấy top `CHAT_RETRIEVE_TOP_K` chunks trong đúng 1 CV (filter cứng `cv_key`).
-4. **Guardrail** - top score < `CHAT_REFUSAL_SCORE_THRESHOLD` (0.3) -> trả reject ngay, không gọi answer LLM. Refusal vẫn được lưu vào DB.
+4. **Guardrail** - retrieval rỗng (CV chưa index) -> trả refusal ngay, không gọi answer LLM. Còn lại để LLM tự từ chối ("Tôi không tìm thấy thông tin này trong CV") qua prompt answer. Refusal vẫn được lưu vào DB.
 5. **Answer + persist** - Answer LLM dùng context chunks, prompt cấm bịa. `append_pair()` lưu user + assistant message trong 1 transaction. LLM trả rỗng (lỗi/rate-limit) thì thay bằng `LLM_ERROR_MESSAGE` thân thiện và bỏ sources, tránh lưu message rỗng.
 
 **Streaming** (`/Stream`): bước 5 dùng `astream_events` yield từng text chunk. Cuối stream gửi `\n__SOURCES__\n` sentinel + JSON sources để frontend tách. Tin nhắn chỉ lưu sau khi stream xong (client đóng giữa chừng -> không lưu phần dở).

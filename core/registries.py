@@ -55,13 +55,17 @@ class NameRegistry:
             self._remove_unlocked(cv_key)
 
     def match(self, query: str) -> list[str]:
-        """Trả cv_keys mà MỌI token tên đều xuất hiện trong query"""
+        """Trả cv_keys mà MỌI token tên đều xuất hiện trong query, gom ứng viên từ inverted index"""
         q_tokens = set(_tokenize(query))
         if not q_tokens:
             return []
+        # Chỉ xét CV chia sẻ ít nhất 1 token với query thay vì quét cả kho
+        candidates: set[str] = set()
+        for t in q_tokens:
+            candidates |= self._tokens.get(t, set())
         return [
-            cv_key for cv_key, name_tokens in self._map.items()
-            if name_tokens and all(t in q_tokens for t in name_tokens)
+            cv_key for cv_key in candidates
+            if (name_tokens := self._map.get(cv_key)) and all(tok in q_tokens for tok in name_tokens)
         ]
 
     def _add_unlocked(self, cv_key: str, name: str | None) -> None:

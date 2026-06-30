@@ -78,9 +78,8 @@ class RetrievalService:
         min_years_exp: int | None = None,
         max_years_exp: int | None = None,
         required_skills: list[str] | None = None,
-        keep_pool_after_rerank: bool = False,
     ) -> tuple[list[SearchHit], int, float]:
-        """Vector search + (optional) rerank, keep_pool_after_rerank giữ toàn pool cho cap_per_cv caller chạy, ngược lại cắt top_k luôn"""
+        """Vector search + (optional) rerank rồi cắt top_k, dùng cho search_within_cv (chat)"""
         fetch_k = RERANK_CANDIDATES if self._reranker else top_k
 
         hits = await self._vector_store.search(
@@ -91,9 +90,8 @@ class RetrievalService:
 
         rerank_time = 0.0
         if self._reranker and hits:
-            rerank_top = len(hits) if keep_pool_after_rerank else top_k
             t_rr = time.perf_counter()
-            hits = await asyncio.to_thread(self._reranker.rerank, rerank_query, hits, rerank_top)
+            hits = await asyncio.to_thread(self._reranker.rerank, rerank_query, hits, top_k)
             rerank_time = time.perf_counter() - t_rr
         elif not self._reranker:
             hits = hits[:top_k]
@@ -101,7 +99,7 @@ class RetrievalService:
         return hits, fetch_k, rerank_time
 
     async def search(self, query: str, top_k: int | None = None) -> list[SearchHit]:
-        """Search toàn bộ CV, top_k=None, unlimited (skip rerank vì pool lớn)"""
+        """Search toàn bộ CV bằng vector dense, top_k=None lấy tất cả (unlimited)"""
         t0 = time.perf_counter()
 
         pq = parse_query(query, self._skill_registry)
@@ -110,26 +108,15 @@ class RetrievalService:
         vectors = await asyncio.to_thread(self._embedder.encode, pq.text)
         query_vector = vectors[0]
 
-        rerank_time = 0.0
-        if top_k is None:
-            hits = await self._vector_store.search(
-                query_vector, top_k=UNLIMITED_FETCH_LIMIT,
-                cv_keys=matched_cv_keys or None,
-                min_years_exp=pq.min_years_exp,
-                max_years_exp=pq.max_years_exp,
-                required_skills=pq.required_skills,
-            )
-        else:
-            hits, _, rerank_time = await self._search_common(
-                query_vector=query_vector,
-                rerank_query=pq.text,
-                top_k=top_k,
-                cv_keys=matched_cv_keys or None,
-                min_years_exp=pq.min_years_exp,
-                max_years_exp=pq.max_years_exp,
-                required_skills=pq.required_skills,
-                keep_pool_after_rerank=True,
-            )
+        # top_k cụ thể thì lấy dư MAX_CHUNKS_PER_CV lần để cap không cắt hụt, None thì lấy tất cả
+        fetch_k = UNLIMITED_FETCH_LIMIT if top_k is None else top_k * MAX_CHUNKS_PER_CV
+        hits = await self._vector_store.search(
+            query_vector, top_k=fetch_k,
+            cv_keys=matched_cv_keys or None,
+            min_years_exp=pq.min_years_exp,
+            max_years_exp=pq.max_years_exp,
+            required_skills=pq.required_skills,
+        )
 
         hits = cap_per_cv(hits, MAX_CHUNKS_PER_CV)
         if top_k is not None:
@@ -138,9 +125,9 @@ class RetrievalService:
         unique_cvs = len({h.cv_key for h in hits})
         elapsed = time.perf_counter() - t0
         logger.info(
-            "Search '%s' | filters=(years>=%s, years<=%s, skills=%s, names=%d) | top_k=%s chunks=%d cvs=%d (cap=%d/cv) | %.3fs (rerank=%.3fs)",
+            "Search '%s' | filters=(years>=%s, years<=%s, skills=%s, names=%d) | top_k=%s chunks=%d cvs=%d (cap=%d/cv) | %.3fs",
             query[:50], pq.min_years_exp, pq.max_years_exp, pq.required_skills,
-            len(matched_cv_keys), top_k, len(hits), unique_cvs, MAX_CHUNKS_PER_CV, elapsed, rerank_time,
+            len(matched_cv_keys), top_k, len(hits), unique_cvs, MAX_CHUNKS_PER_CV, elapsed,
         )
         return hits
 

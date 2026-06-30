@@ -48,6 +48,15 @@ class StorageService:
         row = await db.scalar(select(CVData).where(CVData.key == key))
         return self._row_to_dict(row) if row else None
 
+    async def get_by_keys(self, db: AsyncSession, keys: list[str]) -> dict[str, dict]:
+        """Lấy nhiều CV trong 1 query theo danh sách key, trả map key sang cv_dict, key vắng thì thiếu trong map"""
+        if not keys:
+            return {}
+        rows = (await db.execute(
+            select(CVData).where(CVData.key.in_(keys))
+        )).scalars().all()
+        return {r.key: self._row_to_dict(r) for r in rows}
+
     async def delete(self, db: AsyncSession, key: str) -> bool:
         """Xoá 1 CV, True nếu có xoá"""
         result = await db.execute(delete(CVData).where(CVData.key == key))

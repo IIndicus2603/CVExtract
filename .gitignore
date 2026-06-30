@@ -34,3 +34,8 @@ pytest.ini
 # Scripts dev/utility (local-only)
 scripts/
 
+
+# Eval artifacts sinh ra (giữ code + datasets, bỏ output)
+eval/
+docs/
+requirements-eval.txt

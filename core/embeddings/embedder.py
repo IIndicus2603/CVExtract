@@ -26,12 +26,6 @@ class Embedder:
             )
 
         logger.info("Model loaded in %.2fs | dim=%d", elapsed, actual_dim)
-        self._dim = actual_dim
-
-    @property
-    def dim(self) -> int:
-        """Số chiều vector model trả về"""
-        return self._dim
 
     def encode(self, texts: str | Sequence[str]) -> list[list[float]]:
         """Normalize_embeddings=True để cosine = dot product"""

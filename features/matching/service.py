@@ -18,6 +18,7 @@ from core.config import (
     JD_LLM_EVAL_CONCURRENCY,
     JD_LLM_EVAL_EVIDENCE_CHARS,
     MAX_CHUNKS_PER_CV,
+    RERANK_CANDIDATES,
     UNLIMITED_FETCH_LIMIT,
 )
 from core.embeddings.embedder import Embedder
@@ -25,7 +26,6 @@ from core.embeddings.reranker import Reranker
 from core.llm.client import build_llm_client
 from core.llm.prompt_guard import wrap_untrusted
 from core.llm.providers import TokenUsage
-from core.registries import SkillRegistry
 from core.retrieval_utils import cap_per_cv
 from core.schemas import SearchHit, to_int_or_none
 from core.vector_store import VectorStore
@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 _AGG_TOP_N = len(JD_AGG_WEIGHTS)
 
 
-GetCVMetaFn = Callable[[AsyncSession, str], Awaitable[dict | None]]
+GetCVsFn = Callable[[AsyncSession, list[str]], Awaitable[dict[str, dict]]]
 
 
 class MatchingService:
@@ -54,16 +54,14 @@ class MatchingService:
         model: str | None,
         embedder: Embedder,
         vector_store: VectorStore,
-        skill_registry: SkillRegistry,
-        get_cv_meta_fn: GetCVMetaFn,
+        get_cvs_fn: GetCVsFn,
         reranker: Reranker | None = None,
     ):
         """Init LLM + reuse embedder/vector_store/reranker từ retrieval layer"""
         self._llm = build_llm_client(provider=provider, model=model)
         self._embedder = embedder
         self._vs = vector_store
-        self._skills = skill_registry
-        self._get_cv = get_cv_meta_fn
+        self._get_cvs = get_cvs_fn
         self._reranker = reranker
 
     async def match(
@@ -115,16 +113,19 @@ class MatchingService:
         # 4. Cap chunks/CV
         hits = cap_per_cv(hits, MAX_CHUNKS_PER_CV)
 
-        # 5. (Optional) rerank trên pool đã cap
+        # 5. (Optional) rerank trên shortlist top theo vector score, tránh rerank cả kho
         rerank_time = 0.0
         if self._reranker and hits:
+            # Shortlist đủ phủ top_k CV sau aggregate, sàn RERANK_CANDIDATES như nhánh retrieval
+            rerank_pool = max(RERANK_CANDIDATES, top_k * MAX_CHUNKS_PER_CV * 2)
+            shortlist = sorted(hits, key=lambda h: -h.score)[:rerank_pool]
             t_rr = time.perf_counter()
-            hits = await asyncio.to_thread(
-                self._reranker.rerank, parsed_jd.summary or jd_text[:200], hits, len(hits),
+            shortlist = await asyncio.to_thread(
+                self._reranker.rerank, parsed_jd.summary or jd_text[:200], shortlist, len(shortlist),
             )
             rerank_time = time.perf_counter() - t_rr
             # Sau rerank order toàn cục có thể đổi nên cap lại idempotent
-            hits = cap_per_cv(hits, MAX_CHUNKS_PER_CV)
+            hits = cap_per_cv(shortlist, MAX_CHUNKS_PER_CV)
 
         # 6. Aggregate per CV, top-N chunks, weighted avg
         per_cv: dict[str, list[SearchHit]] = {}
@@ -138,23 +139,26 @@ class MatchingService:
 
         scored.sort(key=lambda x: -x[1])
 
-        # 7. Fetch full CV, skip CV đã xoá khỏi MySQL nhưng còn Qdrant
+        # 7. Fetch full CV theo lô 1 query, bù thêm khi gặp CV đã xoá khỏi MySQL nhưng còn Qdrant
         results: list[CVMatch] = []
-        for cv_key, score, chunks in scored:
-            if len(results) >= top_k:
-                break
-            cv = await self._get_cv(db, cv_key)
-            if cv is None:
-                continue
-            results.append(CVMatch(
-                cv_key=cv_key,
-                cv=cv,
-                score=score,
-                matched_chunks=[
-                    {"section": h.section, "text": h.chunk_text, "score": h.score}
-                    for h in chunks
-                ],
-            ))
+        idx = 0
+        while len(results) < top_k and idx < len(scored):
+            batch = scored[idx:idx + (top_k - len(results))]
+            idx += len(batch)
+            cv_map = await self._get_cvs(db, [cv_key for cv_key, _, _ in batch])
+            for cv_key, score, chunks in batch:
+                cv = cv_map.get(cv_key)
+                if cv is None:
+                    continue
+                results.append(CVMatch(
+                    cv_key=cv_key,
+                    cv=cv,
+                    score=score,
+                    matched_chunks=[
+                        {"section": h.section, "text": h.chunk_text, "score": h.score}
+                        for h in chunks
+                    ],
+                ))
 
         # 8. (Optional) chấm độ phù hợp bằng LLM, re-rank theo llm score
         eval_usage = TokenUsage()

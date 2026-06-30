@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import (
     CHAT_LLM_MODEL,
     CHAT_LLM_PROVIDER,
-    CHAT_REFUSAL_SCORE_THRESHOLD,
     CHAT_RETRIEVE_TOP_K,
 )
 from core.llm.client import build_llm_client
@@ -45,11 +44,10 @@ LLM_ERROR_MESSAGE = (
 
 
 def _should_refuse(hits: list) -> tuple[bool, float]:
-    """Reject khi không có hit hoặc top score dưới threshold"""
+    """Reject khi retrieval rỗng, còn lại để LLM tự từ chối qua prompt answer"""
     if not hits:
         return True, 0.0
-    top_score = hits[0].score
-    return top_score < CHAT_REFUSAL_SCORE_THRESHOLD, top_score
+    return False, hits[0].score
 
 
 class ChatService:

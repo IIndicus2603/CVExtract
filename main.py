@@ -94,8 +94,7 @@ async def lifespan(_: FastAPI):
         model=PARSING_LLM_MODEL,
         embedder=embedder,
         vector_store=_vector_store,
-        skill_registry=_skill_registry,
-        get_cv_meta_fn=_storage.get_by_key,
+        get_cvs_fn=_storage.get_by_keys,
         reranker=reranker,
     )
 
@@ -364,13 +363,17 @@ async def search_semantic(req: SemanticSearchRequest, db: AsyncSession = Depends
     """Vector search rồi group theo CV, sort theo score"""
     hits = await _retrieval.search(query=req.query, top_k=req.top_k)
 
-    # Group hits theo cv_key, fetch full CV, skip CV bị xoá khỏi MySQL
+    # Fetch full CV 1 query theo cv_key duy nhất, skip CV bị xoá khỏi MySQL
+    order = list(dict.fromkeys(h.cv_key for h in hits))
+    cv_map = await _storage.get_by_keys(db, order)
+
+    # Group hits theo cv_key, sort theo score
     seen: dict[str, dict] = {}
     for hit in hits:
+        cv = cv_map.get(hit.cv_key)
+        if cv is None:
+            continue
         if hit.cv_key not in seen:
-            cv = await _storage.get_by_key(db, hit.cv_key)
-            if cv is None:
-                continue
             seen[hit.cv_key] = {
                 "cv_key": hit.cv_key,
                 "cv": cv,
